@@ -1,0 +1,43 @@
+key: example_signal_timeout
+name: Example signal timeout
+version: "v1.0.0"
+status: active
+
+stages:
+  - id: created
+    name: Created
+    is_initial: true
+  - id: credit_info
+    name: Credit information
+
+signals:
+  - name: credit_info_opened
+  - name: terms_viewed
+
+forms:
+  - id: client_credit_info
+    roles: [client]
+
+nodes:
+  - id: start
+    type: Start
+    next: credit_info_open
+    set_stage: created
+  - id: credit_info_open
+    type: UserTask
+    form: client_credit_info
+    wait_for:
+      signals: [credit_info_opened]
+    next: credit_info
+    set_stage: credit_info
+  - id: credit_info
+    type: UserTask
+    form: client_credit_info
+    wait_for:
+      signals: [terms_viewed]
+    timeout:
+      after: PT3M
+      on_timeout: finish
+    next: finish
+  - id: finish
+    type: End

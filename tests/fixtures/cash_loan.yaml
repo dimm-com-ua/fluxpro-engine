@@ -1,0 +1,67 @@
+key: example_gateway_wait
+name: Example gateway and wait
+version: "v1.0.0"
+status: active
+
+stages:
+  - id: created
+    name: Created
+    is_initial: true
+  - id: calculator
+    name: Calculator
+
+signals:
+  - name: calculator_interacted
+  - name: terms_selected
+  - name: terms_viewed
+
+forms:
+  - id: calculator
+    roles: [client]
+
+nodes:
+  - id: start
+    type: Start
+    next: select_terms_open
+    set_stage: created
+  - id: select_terms_open
+    type: UserTask
+    form: calculator
+    wait_for:
+      signals: [calculator_interacted, terms_selected]
+    next: select_terms_open_route
+    set_stage: calculator
+  - id: select_terms_open_route
+    type: Gateway
+    gateway: XOR
+    branches:
+      - when: "ctx._last_signal == 'calculator_interacted'"
+        next: select_terms
+      - when: "ctx._last_signal == 'terms_selected'"
+        next: close_ticket_terms
+    next: finalize_reject
+  - id: select_terms
+    type: UserTask
+    form: calculator
+    wait_for:
+      signals: [terms_selected]
+    timeout:
+      after: PT1M
+      on_timeout: finalize_reject
+    next: finish
+  - id: close_ticket_terms
+    type: ServiceTask
+    handler: close_ticket
+    next: finish
+  - id: final_terms_after_reminder
+    type: Wait
+    wait_for:
+      signal: terms_viewed
+    timeout:
+      after: PT3M
+      on_timeout: finalize_reject
+    next: finish
+  - id: finalize_reject
+    type: End
+  - id: finish
+    type: End
