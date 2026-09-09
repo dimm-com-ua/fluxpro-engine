@@ -478,7 +478,8 @@ impl FluxproAdminService {
         &self,
         process_definition_uuid: Uuid,
     ) -> AdminResult<Vec<ProcessNodeInstanceCount>> {
-        self.get_process_node_instance_counts_filtered(process_definition_uuid, false).await
+        self.get_process_node_instance_counts_filtered(process_definition_uuid, false)
+            .await
     }
 
     /// Version-wide node counts, optionally excluding completed instances.

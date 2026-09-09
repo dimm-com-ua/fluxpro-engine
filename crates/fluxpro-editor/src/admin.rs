@@ -90,7 +90,9 @@ async fn load(
         source.key == request.scope.key && source.version == request.scope.version,
         "Definition scope mismatch"
     );
-    let counts = service.get_process_node_instance_counts_filtered(uuid, request.active_counts_only).await?;
+    let counts = service
+        .get_process_node_instance_counts_filtered(uuid, request.active_counts_only)
+        .await?;
     if !include_instances {
         return Ok(MonitorSnapshot {
             request: request.clone(),
