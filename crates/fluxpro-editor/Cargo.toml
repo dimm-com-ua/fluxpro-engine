@@ -13,8 +13,10 @@ default = []
 csr = ["leptos/csr"]
 hydrate = ["leptos/hydrate"]
 ssr = ["leptos/ssr"]
+admin = ["fluxpro-engine/admin", "dep:anyhow", "chrono/clock"]
 
 [dependencies]
+anyhow = { version = "1", optional = true }
 fluxpro-engine = { version = "0.1.0", path = "../..", default-features = false }
 leptos = { version = "0.8.20", default-features = false }
 serde = { version = "1", features = ["derive"] }
@@ -35,3 +37,8 @@ getrandom = { version = "0.2", features = ["js"] }
 name = "editor-demo"
 path = "demo/main.rs"
 required-features = ["csr"]
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+fluxpro-engine = { path = "../..", features = ["runtime"] }
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "uuid"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

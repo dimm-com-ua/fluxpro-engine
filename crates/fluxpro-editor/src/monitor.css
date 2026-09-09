@@ -1,4 +1,4 @@
-.fluxpro-monitor .fm-health {display:flex;gap:24px;align-items:center;padding:10px 24px;background:#f8fafc;border-bottom:1px solid #e6ebf2;font-size:11px;color:#64748b;}
+.fluxpro-monitor .fm-health {display:flex;gap:24px;align-items:center;padding:10px 24px;background:var(--fp-canvas);border-bottom:1px solid #e6ebf2;font-size:11px;color:#64748b;}
 .fluxpro-monitor .fm-online {color:#12866c;}.fluxpro-monitor .fm-observed {margin-left:auto;font-size:10px;}
 .fluxpro-monitor .fm-tabs {display:flex;flex:none;gap:8px;overflow:auto;padding:10px 20px;border-bottom:1px solid #e5eaf0;}
 .fluxpro-monitor .fm-tabs>button,.fluxpro-monitor .fm-instance-tab {flex-shrink:0;}
@@ -12,13 +12,13 @@
 .fluxpro-monitor .fm-section-heading {padding:22px 24px 12px;}.fluxpro-monitor .fm-section-heading h2 {margin:5px 0;font-size:20px;}
 .fluxpro-monitor .fm-search {display:flex;gap:8px;padding:6px 24px;}.fluxpro-monitor .fm-search input {flex:1;min-width:0;}
 .fluxpro-monitor .fm-filters {display:flex;align-items:end;gap:8px;padding:10px 24px 18px;}.fluxpro-monitor .fm-filters label {flex:1;min-width:0;color:#718096;font-size:11px;}.fluxpro-monitor .fm-filters select {display:block;width:100%;margin-top:4px;}
-.fluxpro-monitor .fm-table-scroll {overflow:auto;}.fluxpro-monitor .fm-table {border-collapse:collapse;width:100%;font-size:12px;}.fluxpro-monitor .fm-table th {text-align:left;background:#f8fafc;font-weight:500;color:#718096;font-size:10px;letter-spacing:.06em;text-transform:uppercase;}.fluxpro-monitor .fm-table th,.fluxpro-monitor .fm-table td {padding:12px 18px;border-bottom:1px solid #edf1f6;vertical-align:top;}.fluxpro-monitor .fm-table th:first-child,.fluxpro-monitor .fm-table td:first-child {padding-left:24px;}
+.fluxpro-monitor .fm-table-scroll {overflow:auto;}.fluxpro-monitor .fm-table {border-collapse:collapse;width:100%;font-size:12px;}.fluxpro-monitor .fm-table th {text-align:left;background:var(--fp-canvas);font-weight:500;color:#718096;font-size:10px;letter-spacing:.06em;text-transform:uppercase;}.fluxpro-monitor .fm-table th,.fluxpro-monitor .fm-table td {padding:12px 18px;border-bottom:1px solid #edf1f6;vertical-align:top;}.fluxpro-monitor .fm-table th:first-child,.fluxpro-monitor .fm-table td:first-child {padding-left:24px;}
 .fluxpro-monitor .fm-table code,.fluxpro-monitor .fm-table small {display:block;font-size:10px;color:#8290a4;margin:4px 0;overflow-wrap:anywhere;max-width:250px;}
 .fluxpro-monitor .fm-link {border:0;padding:0;min-height:20px;background:transparent;color:#355fd0;font-weight:650;white-space:normal;text-align:left;}
 .fluxpro-monitor .fm-state {display:inline-flex;background:#f0f4fa;color:#4b607b;padding:2px 7px;border-radius:5px;font-size:10px;}
 .fluxpro-monitor .fm-pagination {display:flex;align-items:center;gap:7px;padding:18px 24px;}.fluxpro-monitor .fm-pagination>span {margin-right:auto;color:#718096;font-size:11px;}
 .fluxpro-monitor .fm-empty {padding:24px;text-align:center;color:#8391a4;}.fluxpro-monitor .fm-error {background:#fff0f0;color:#a83243;padding:10px 24px;font-size:12px;}
-.fluxpro-monitor .fm-node {position:absolute;width:224px;height:88px;padding:13px 14px 25px;display:flex;justify-content:flex-start;gap:10px;text-align:left;background:white;border:1px solid #d5dfea;border-radius:12px;box-shadow:0 4px 12px #34486508;white-space:normal;}
+.fluxpro-monitor .fm-node {position:absolute;width:224px;height:88px;padding:13px 14px 25px;display:flex;justify-content:flex-start;gap:10px;text-align:left;background:var(--fp-surface);border:1px solid #d5dfea;border-radius:12px;box-shadow:0 4px 12px #34486508;white-space:normal;}
 .fluxpro-monitor .fm-node-title {min-width:0;display:flex;flex-direction:column;gap:3px;}.fluxpro-monitor .fm-node-title strong {font-size:12px;}.fluxpro-monitor .fm-node-title small {font-size:10px;color:#8996a8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:132px;}
 .fluxpro-monitor .fm-node-icon {font-size:19px;color:#6880aa;}.fluxpro-monitor .fm-node-count {margin-left:auto;align-self:flex-start;border-radius:6px;background:#edf3ff;color:#315dcb;padding:2px 6px;font-size:12px;font-weight:700;}
 .fluxpro-monitor .fm-node-alerts {position:absolute;bottom:7px;left:14px;display:flex;gap:9px;font-size:9px;}
@@ -34,3 +34,10 @@
 .fluxpro-monitor .fm-json {padding:7px 0 7px 10px;font-size:11px;border-left:1px solid #e5ebf4;}.fluxpro-monitor .fm-json summary {cursor:pointer;color:#54709c;overflow-wrap:anywhere;}.fluxpro-monitor .fm-json-value {display:grid;grid-template-columns:minmax(60px,1fr) minmax(0,2fr);gap:12px;padding:6px 10px;font-size:11px;}.fluxpro-monitor .fm-json-value strong {font-weight:500;overflow-wrap:anywhere;}.fluxpro-monitor .fm-json-value code {white-space:pre-wrap;overflow-wrap:anywhere;color:#42617a;}
 @container fluxpro (max-width:950px) {.fluxpro-monitor .fm-inspection{min-width:350px;width:52%;}.fluxpro-monitor .fm-observed{display:none;}.fluxpro-monitor .fm-legend{display:none;}.fluxpro-monitor .fm-table th,.fluxpro-monitor .fm-table td{padding:10px;}.fluxpro-monitor .fm-detail-nav{gap:2px;padding-inline:10px;}}
 @container fluxpro (max-width:700px) {.fluxpro-monitor .fm-workspace{flex-direction:column;overflow:auto;}.fluxpro-monitor .fm-canvas-wrap{min-height:300px;flex:none;}.fluxpro-monitor .fm-inspection{width:100%;max-width:none;min-width:0;min-height:360px;flex:1;border-left:0;border-top:1px solid #e5eaf0;}.fluxpro-monitor .fm-health{gap:10px;padding:8px 14px;}.fluxpro-monitor .fp-status span:last-child{display:none;}}
+
+:is(.dark,[data-theme="dark"]) .fluxpro-monitor :is(.fm-state,.fm-node-count,.fm-legend,.fm-active) {background:var(--fp-soft)!important;color:#a8c4ff!important;}
+:is(.dark,[data-theme="dark"]) .fluxpro-monitor :is(.fm-inspection,.fm-node,.fm-tabs,.fm-instance-tab,.fm-table th,.fm-table td,.fm-detail-nav,.fm-health) {border-color:var(--fp-line);}
+:is(.dark,[data-theme="dark"]) .fluxpro-monitor .fm-error {background:#451d2b;color:#fda4af;}
+:is(.dark,[data-theme="dark"]) .fluxpro-monitor .fm-incident {background:#302719;border-color:#725a2c;}
+:is(.dark,[data-theme="dark"]) .fluxpro-monitor .fm-incident-error {background:#351d2b;border-color:#723646;}
+:is(.dark,[data-theme="dark"]) .fluxpro-monitor :is(.fm-json summary,.fm-json-value code,.fm-detail-content p,.fm-facts dt,.fm-token) {color:#a5b4c8;}

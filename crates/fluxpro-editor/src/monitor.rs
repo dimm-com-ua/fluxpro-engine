@@ -274,6 +274,9 @@ pub struct MonitorSnapshot {
     pub instances: MonitorPage<MonitorInstance>,
     /// Requested open-instance details, each checked against the version scope.
     pub details: Vec<MonitorInstanceDetails>,
+    /// Whether the host supplies authoritative support-escalation counts.
+    #[serde(default)]
+    pub escalation_counts_available: bool,
     /// Fetch error. Previously accepted data remain visible with a stale label.
     pub error: Option<String>,
 }

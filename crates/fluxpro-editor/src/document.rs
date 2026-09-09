@@ -170,7 +170,7 @@ impl Connection {
 }
 
 /// An engine definition and an independent, optional visual layout.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EditorDocument {
     /// Complete typed definition, including declarations and runtime settings.
     pub definition: ProcessDefinition,

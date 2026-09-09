@@ -88,6 +88,25 @@ pub(super) fn DeclarationPanel(
     let baseline = RwSignal::new(Value::Null);
     let editing = RwSignal::new(false);
     let error = RwSignal::new(String::new());
+    let pending_key = StoredValue::new(format!("declaration:{}", kind.singular()));
+    Effect::new(move |_| {
+        session.track_pending(
+            pending_key.get_value(),
+            editing.get() && draft.get() != baseline.get(),
+        )
+    });
+    on_cleanup(move || session.track_pending(pending_key.get_value(), false));
+    let guard_pending = move || {
+        if session.require_applied_changes
+            && editing.get_untracked()
+            && draft.get_untracked() != baseline.get_untracked()
+        {
+            error.set("Apply or cancel these changes before editing another declaration.".into());
+            true
+        } else {
+            false
+        }
+    };
     let matching = Memo::new(move |_| {
         session.state.with(|s| {
             s.document
@@ -116,6 +135,9 @@ pub(super) fn DeclarationPanel(
         }
     });
     let load = move |id: String| {
+        if guard_pending() {
+            return;
+        }
         if let Some(value) = session
             .state
             .with_untracked(|s| s.document.declaration(kind, &id))
@@ -142,6 +164,7 @@ pub(super) fn DeclarationPanel(
                 <header class="fp-declaration-heading">
                     <div><span class="fp-eyebrow">"PROCESS RESOURCES"</span><h2>{kind.label()}</h2><p>{kind.hint()}</p></div>
                     <button type="button" class="fp-primary" on:click=move |_| {
+                        if guard_pending(){return;}
                         original.set(None); role_input.set(String::new()); draft.set(session.state.with_untracked(|s| s.document.new_declaration(kind))); baseline.set(Value::Null); editing.set(true); error.set(String::new());
                     }>{format!("+ Add {}", kind.singular())}</button>
                 </header>
@@ -219,7 +242,7 @@ pub(super) fn DeclarationPanel(
                                     let escalation = usage.escalation;
                                     let title = if escalation.is_some() { "Show escalation" } else { "Show block in process" };
                                     view! { <button type="button" class="fp-reference-link" title=title on:click=move |_| {
-                                        if let Some(id) = &node { active.set(EditorTab::Process); session.selected.set(Some(id.clone())); session.reveal_node.set(Some(id.clone())); }
+                                        if let Some(id) = &node { active.set(EditorTab::Process); session.select(id.clone()); session.reveal_node.set(Some(id.clone())); }
                                         else if let Some(id) = &escalation { active.set(EditorTab::Escalations); session.reveal_declaration.set(Some((DeclarationKind::Escalation, id.clone()))); }
                                     }>{usage.label}<span>"↗"</span></button> }
                                 }).collect_view().into_any() }

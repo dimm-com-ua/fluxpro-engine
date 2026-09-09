@@ -140,6 +140,8 @@ pub struct ProcessNodeInstanceCount {
     pub node_id: String,
     /// Number of instances currently assigned to this node.
     pub instance_count: i64,
+    /// Assigned instances with an unresolved execution incident.
+    pub error_count: i64,
 }
 
 /// Aggregated version and instance information for one process key.
@@ -178,8 +180,11 @@ pub struct ProcessInstanceFilter {
     pub search: Option<String>,
     /// Database identity of the bound process definition.
     pub process_definition_uuid: Option<Uuid>,
-    /// `created`, `running`, or `completed`.
+    /// `created`, `running`, `suspended`, or `completed`.
     pub state: Option<String>,
+    /// Exact current node ID, applied before counting and pagination.
+    #[serde(default)]
+    pub node_id: Option<String>,
 }
 
 /// Instance identity and its current node and business stage.
@@ -474,7 +479,12 @@ impl FluxproAdminService {
         process_definition_uuid: Uuid,
     ) -> AdminResult<Vec<ProcessNodeInstanceCount>> {
         Ok(sqlx::query_as(
-            r#"select n.node_id, count(i.uuid)::bigint as instance_count
+            r#"select n.node_id, count(i.uuid)::bigint as instance_count,
+                      count(i.uuid) filter (where exists (
+                          select 1 from fluxpro.process_incident incident
+                          where incident.process_instance_uuid = i.uuid
+                            and incident.resolved_at is null
+                      ))::bigint as error_count
                from fluxpro.process_def_node n
                left join fluxpro.process_instance i on i.current_node_ref = n.uuid
                where n.process_def_uuid = $1
@@ -528,26 +538,32 @@ impl FluxproAdminService {
         let total = sqlx::query_scalar::<_, i64>(&format!(
             "select count(*) from ({INSTANCE_SELECT}) instance_admin \
              where ($1::text is null or process_id ilike '%' || $1 || '%' \
-                    or token ilike '%' || $1 || '%' or process_key ilike '%' || $1 || '%') \
+                    or token ilike '%' || $1 || '%' or process_key ilike '%' || $1 || '%' \
+                    or uuid::text ilike '%' || $1 || '%') \
                and ($2::uuid is null or process_definition_uuid = $2) \
-               and ($3::text is null or state = $3)"
+               and ($3::text is null or state = $3) \
+               and ($4::text is null or current_node_id = $4)"
         ))
         .bind(&search)
         .bind(filter.process_definition_uuid)
         .bind(&state)
+        .bind(&filter.node_id)
         .fetch_one(&self.pool)
         .await?;
         let items = sqlx::query_as::<_, ProcessInstanceSummary>(&format!(
             "select * from ({INSTANCE_SELECT}) instance_admin \
              where ($1::text is null or process_id ilike '%' || $1 || '%' \
-                    or token ilike '%' || $1 || '%' or process_key ilike '%' || $1 || '%') \
+                    or token ilike '%' || $1 || '%' or process_key ilike '%' || $1 || '%' \
+                    or uuid::text ilike '%' || $1 || '%') \
                and ($2::uuid is null or process_definition_uuid = $2) \
                and ($3::text is null or state = $3) \
-             order by created_at desc, uuid offset $4 limit $5"
+               and ($4::text is null or current_node_id = $4) \
+             order by created_at desc, uuid offset $5 limit $6"
         ))
         .bind(&search)
         .bind(filter.process_definition_uuid)
         .bind(&state)
+        .bind(&filter.node_id)
         .bind(page.offset)
         .bind(page.limit)
         .fetch_all(&self.pool)

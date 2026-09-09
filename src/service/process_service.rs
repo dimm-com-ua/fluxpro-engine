@@ -114,6 +114,18 @@ pub trait FluxproService {
         process_def: &ProcessDefinition,
         source_definition: &str,
     ) -> Result<ProcessId, CreateProcessError>;
+    /// Atomically publishes a new active version without replacing any stored definition.
+    /// Custom service adapters fail closed until they support this operation.
+    async fn publish_process_def_from_source(
+        &self,
+        _process_def: &ProcessDefinition,
+        _source_definition: &str,
+        _base_uuid: Option<uuid::Uuid>,
+    ) -> Result<ProcessId, CreateProcessError> {
+        Err(CreateProcessError::ValidationError(vec![
+            "Atomic publication is not supported by this service".into(),
+        ]))
+    }
     /// Starts an instance for a definition key and queues its Start node.
     ///
     /// Requires an initial stage, a currently effective definition, and a unique
@@ -381,6 +393,26 @@ impl FluxproServiceImpl {
 
 #[async_trait]
 impl FluxproService for FluxproServiceImpl {
+    async fn publish_process_def_from_source(
+        &self,
+        process_def: &ProcessDefinition,
+        source_definition: &str,
+        base_uuid: Option<uuid::Uuid>,
+    ) -> Result<ProcessId, CreateProcessError> {
+        if !matches!(
+            process_def.status,
+            crate::models::process_def::ProcessStatus::Active
+        ) {
+            return Err(CreateProcessError::StatusNotValid);
+        }
+        let compiled = process_def.compile()?;
+        let uuid = self
+            .db_service
+            .publish_service_process_def(process_def, compiled, source_definition, base_uuid)
+            .await?;
+        Ok(ProcessId::new(uuid.to_string()))
+    }
+
     async fn get_open_incident(
         &self,
         token: &IdField,

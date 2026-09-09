@@ -4,7 +4,11 @@ use leptos::prelude::*;
 use serde_json::Value;
 
 #[component]
-pub(super) fn InstanceDetails(session: MonitorSession, instance: MonitorInstance) -> impl IntoView {
+pub(super) fn InstanceDetails(
+    session: MonitorSession,
+    instance: MonitorInstance,
+    actions: Option<Callback<Signal<Option<MonitorInstanceDetails>>, AnyView>>,
+) -> impl IntoView {
     let id = StoredValue::new(instance.uuid.clone());
     let initial = StoredValue::new(instance);
     let tab = RwSignal::new("Overview");
@@ -39,14 +43,14 @@ pub(super) fn InstanceDetails(session: MonitorSession, instance: MonitorInstance
             <Show when=move ||tab.get()=="History"><h3>"Execution history"</h3><p>"Newest first · Node visits, transitions, attempts and errors."</p>
                 <Show when=move ||detail.get().is_some_and(|d|d.logs.items.is_empty())><p class="fm-empty">"No execution history recorded."</p></Show>
                 <For each=move ||detail.get().map(|d|d.logs.items).unwrap_or_default() key=|entry|entry.uuid.clone() children=move |entry|view!{<article class="fm-history-entry" class:fm-history-error=matches!(entry.level.as_str(),"error"|"critical")><div><span class="fm-state">{entry.level.clone()}</span><time>{entry.created_at}</time></div><strong>{entry.event_type}</strong><p>{entry.message}</p><small>{entry.node_id.unwrap_or_default()}</small><JsonTree label="Event diagnostics" value=serde_json::to_value(entry.data).unwrap_or_default()/></article>}/>
-                <button type="button" class="fp-wide" disabled=move ||detail.get().is_none_or(|d|d.logs.items.len() as u64>=d.logs.total) on:click=move |_|session.change(|r|{if let Some(i)=r.instances.iter_mut().find(|i|i.uuid==id.get_value()){i.log_limit=i.log_limit.saturating_add(100);}})>{move ||detail.get().map(|d|format!("Load more history · {} of {}",d.logs.items.len(),d.logs.total)).unwrap_or("Load history".into())}</button>
+                <button type="button" class="fp-wide" disabled=move ||detail.get().is_none_or(|d|d.logs.items.len() as u64>=d.logs.total || d.logs.items.len()>=10_000) on:click=move |_|session.change(|r|{if let Some(i)=r.instances.iter_mut().find(|i|i.uuid==id.get_value()){i.log_limit=i.log_limit.saturating_add(100).min(10_000);}})>{move ||detail.get().map(|d|format!("Load more history · {} of {}",d.logs.items.len(),d.logs.total)).unwrap_or("Load history".into())}</button>
             </Show>
             <Show when=move ||tab.get()=="Stages"><h3>"Stage history"</h3><p>"Persisted business-stage changes and the context at each transition."</p><Show when=move ||detail.get().is_some_and(|d|d.stage_history.is_empty())><p class="fm-empty">"No stage changes recorded."</p></Show>
                 <For each=move ||detail.get().map(|d|d.stage_history).unwrap_or_default() key=|entry|entry.uuid.clone() children=move |entry|view!{<article class="fm-history-entry"><time>{entry.created_at}</time><strong>{entry.stage_name.or(entry.stage_id).unwrap_or_else(||"Removed stage".into())}</strong><p>{entry.reason.unwrap_or_default()}</p><JsonTree label="Context at this stage" value=entry.context/></article>}/>
             </Show>
-            <Show when=move ||tab.get()=="Events"><h3>"Signal events"</h3><p>"Newest admitted signals first. Admission does not imply successful delivery."</p><Show when=move ||detail.get().is_some_and(|d|d.signals.items.is_empty())><p class="fm-empty">"No signal events recorded."</p></Show>
+            <Show when=move ||tab.get()=="Events">{actions.map(|actions| actions.run(detail.into()))}<h3>"Signal events"</h3><p>"Newest admitted signals first. Admission does not imply successful delivery."</p><Show when=move ||detail.get().is_some_and(|d|d.signals.items.is_empty())><p class="fm-empty">"No signal events recorded."</p></Show>
                 <For each=move ||detail.get().map(|d|d.signals.items).unwrap_or_default() key=|entry|entry.uuid.clone() children=move |entry|view!{<article class="fm-history-entry"><time>{entry.created_at}</time><strong>{entry.signal_name}</strong><small>{entry.uuid}</small><JsonTree label="Signal payload" value=entry.payload/></article>}/>
-                <button type="button" class="fp-wide" disabled=move ||detail.get().is_none_or(|d|d.signals.items.len() as u64>=d.signals.total) on:click=move |_|session.change(|r|{if let Some(i)=r.instances.iter_mut().find(|i|i.uuid==id.get_value()){i.signal_limit=i.signal_limit.saturating_add(100);}})>{move ||detail.get().map(|d|format!("Load more events · {} of {}",d.signals.items.len(),d.signals.total)).unwrap_or("Load events".into())}</button>
+                <button type="button" class="fp-wide" disabled=move ||detail.get().is_none_or(|d|d.signals.items.len() as u64>=d.signals.total || d.signals.items.len()>=10_000) on:click=move |_|session.change(|r|{if let Some(i)=r.instances.iter_mut().find(|i|i.uuid==id.get_value()){i.signal_limit=i.signal_limit.saturating_add(100).min(10_000);}})>{move ||detail.get().map(|d|format!("Load more events · {} of {}",d.signals.items.len(),d.signals.total)).unwrap_or("Load events".into())}</button>
             </Show>
             <Show when=move ||tab.get()=="Context"><h3>"Current context"</h3><p>"Typed values supplied by the runtime."</p><JsonTree label="Context" value=Signal::derive(move ||detail.get().map(|d|d.context).unwrap_or_default())/>
                 <h3>"Scoped variables"</h3><JsonTree label="Variables by scope" value=Signal::derive(move ||Value::Array(detail.get().map(|d|d.context_variables).unwrap_or_default()))/>

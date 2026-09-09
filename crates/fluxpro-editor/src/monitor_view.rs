@@ -43,6 +43,12 @@ impl MonitorSession {
             .tabs
             .with_untracked(|tabs| tabs.iter().any(|tab| tab.uuid == id))
         {
+            if self.tabs.with_untracked(|tabs| tabs.len() >= 25) {
+                self.error.set(Some(
+                    "Close an instance tab before opening another (maximum 25).".into(),
+                ));
+                return;
+            }
             self.tabs.update(|tabs| tabs.push(instance));
             self.change(|r| {
                 r.instances.push(MonitorInstanceRequest {
@@ -71,6 +77,7 @@ impl MonitorSession {
             let total=snapshot.node_counts.iter().map(|n|n.instance_count).sum::<u64>();
             let errors=snapshot.node_counts.iter().map(|n|n.errors).sum::<u64>();
             let escalated=snapshot.node_counts.iter().map(|n|n.escalations).sum::<u64>();
+            let escalated = if snapshot.escalation_counts_available { escalated.to_string() } else { "unknown".into() };
             if complete { format!("{total} assigned · {errors} errors · {escalated} escalated") }
             else { format!("Partial counts · {total} assigned reported · {errors} errors · {escalated} escalated") }
         })
@@ -116,9 +123,18 @@ pub fn ProcessMonitor(
     /// Polling period in milliseconds; zero disables polling. Minimum is 1000.
     #[prop(default = 5000)]
     refresh_interval_ms: u32,
+    /// Show the instance list and detail panes; disable for definition-only access.
+    #[prop(default = true)]
+    show_instances: bool,
+    /// Host-driven instance selection; foreign-version instances are ignored.
+    #[prop(optional, into)]
+    open_instance: Signal<Option<MonitorInstance>>,
+    /// Optional host actions rendered in the Events section of each instance pane.
+    #[prop(optional)]
+    instance_actions: Option<Callback<Signal<Option<MonitorInstanceDetails>>, AnyView>>,
 ) -> impl IntoView {
     view! {<section class="fluxpro-editor fluxpro-monitor" aria-label="FluxPro process monitor"><style>{EDITOR_CSS}</style><style>{include_str!("monitor.css")}</style>
-        <For each=move ||vec![MonitorScope::from_document(&document.get())] key=|scope|scope.clone() children=move |scope|view!{<MonitorBody document=document snapshot=snapshot on_request=on_request scope=scope refresh_interval_ms=refresh_interval_ms/>}/>
+        <For each=move ||vec![MonitorScope::from_document(&document.get())] key=|scope|scope.clone() children=move |scope|view!{<MonitorBody document=document snapshot=snapshot on_request=on_request scope=scope refresh_interval_ms=refresh_interval_ms open_instance=open_instance instance_actions=instance_actions show_instances=show_instances/>}/>
     </section>}
 }
 #[component]
@@ -128,6 +144,9 @@ fn MonitorBody(
     on_request: Callback<MonitorRequest>,
     scope: MonitorScope,
     refresh_interval_ms: u32,
+    show_instances: bool,
+    open_instance: Signal<Option<MonitorInstance>>,
+    instance_actions: Option<Callback<Signal<Option<MonitorInstanceDetails>>, AnyView>>,
 ) -> impl IntoView {
     let session = MonitorSession {
         document,
@@ -142,11 +161,20 @@ fn MonitorBody(
         tabs: RwSignal::new(Vec::new()),
         live: RwSignal::new(refresh_interval_ms > 0),
     };
+    // Apply the initial selection before the first request, including during SSR.
+    if let Some(instance) = open_instance.get_untracked().filter(|_| show_instances) {
+        session.open(instance);
+    }
+    Effect::new(move |_| {
+        if let Some(instance) = open_instance.get().filter(|_| show_instances) {
+            session.open(instance);
+        }
+    });
     Effect::new(move |_| {
         on_request.run(session.request.get());
     });
     Effect::new(move |_| {
-        let incoming = snapshot.get();
+        let mut incoming = snapshot.get();
         let request = session.request.get_untracked();
         if incoming.request != request {
             return;
@@ -160,6 +188,21 @@ fn MonitorBody(
         if let Some(error) = incoming.error.clone() {
             session.error.set(Some(error));
             return;
+        }
+        // A partial history failure must not erase the last readable details.
+        if let Some(previous) = session.accepted.get_untracked() {
+            for detail in &mut incoming.details {
+                if let Some(error) = detail.error.clone() {
+                    if let Some(old) = previous
+                        .details
+                        .iter()
+                        .find(|old| old.instance.uuid == detail.instance.uuid)
+                    {
+                        *detail = old.clone();
+                        detail.error = Some(error);
+                    }
+                }
+            }
         }
         session.error.set(None);
         session.tabs.update(|tabs| {
@@ -201,16 +244,16 @@ fn MonitorBody(
             <span>{move ||session.health_summary()}</span>
             <span class="fm-observed">{move ||session.accepted.with(|s|s.as_ref().and_then(|s|s.observed_at.as_ref()).map(|s|format!("Observed {s}")).unwrap_or_default())}</span>
         </div>
-        <nav class="fm-tabs" aria-label="Monitor tabs"><button type="button" class:fm-active=move ||session.active.get().is_none() aria-pressed=move ||session.active.get().is_none() on:click=move |_|session.active.set(None)>"Instances"</button>
+        <nav hidden=!show_instances class="fm-tabs" aria-label="Monitor tabs"><button type="button" class:fm-active=move ||session.active.get().is_none() aria-pressed=move ||session.active.get().is_none() on:click=move |_|session.active.set(None)>"Instances"</button>
             <For each=move ||session.tabs.get() key=|i|i.uuid.clone() children=move |instance|{let id=StoredValue::new(instance.uuid);let title=StoredValue::new(instance.process_id);view!{<div class="fm-instance-tab" class:fm-active=move ||session.active.get().as_deref()==Some(id.get_value().as_str())>
                 <button type="button" aria-pressed=move ||session.active.get().as_deref()==Some(id.get_value().as_str()) on:click=move |_|session.active.set(Some(id.get_value()))>{title.get_value()}</button>
                 <button type="button" aria-label=format!("Close instance {}",title.get_value()) on:click=move |_|session.close(&id.get_value())>"×"</button>
             </div>}}/>
         </nav>
         <Show when=move ||session.error.get().is_some()><div class="fm-error" role="alert">{move ||session.error.get().unwrap_or_default()}" Previous data may be stale; use Refresh to retry."</div></Show>
-        <div class="fm-workspace"><MonitorCanvas session=session/><div class="fm-inspection">
+        <div class="fm-workspace"><MonitorCanvas session=session/><div class="fm-inspection" hidden=!show_instances>
             <div class="fm-pane" hidden=move ||session.active.get().is_some()><InstanceList session=session/></div>
-            <For each=move ||session.tabs.get() key=|i|i.uuid.clone() children=move |instance|{let id=StoredValue::new(instance.uuid.clone());view!{<div class="fm-pane" hidden=move ||session.active.get().as_deref()!=Some(id.get_value().as_str())><InstanceDetails session=session instance=instance/></div>}}/>
+            <For each=move ||session.tabs.get() key=|i|i.uuid.clone() children=move |instance|{let id=StoredValue::new(instance.uuid.clone());view!{<div class="fm-pane" hidden=move ||session.active.get().as_deref()!=Some(id.get_value().as_str())><InstanceDetails session=session instance=instance actions=instance_actions/></div>}}/>
         </div></div>
         <footer class="fp-status"><span>"Read-only · "{move ||session.request.with(|r|format!("{} / {}",r.scope.key,r.scope.version))}</span><span>"Pinch to zoom · ⌘ + drag to pan · Select a block to filter"</span></footer>
     }

@@ -96,6 +96,19 @@ pub trait FluxproDbService {
         compiled_process_def: JsonValue,
         source_definition: Option<&str>,
     ) -> Result<Uuid, sqlx::Error>;
+    /// Publishes a fresh active version, atomically checking the base and version order.
+    /// `None` creates a new process key; `Some` requires an existing version of that key.
+    async fn publish_service_process_def(
+        &self,
+        _process_def: &ProcessDefinition,
+        _compiled_process_def: JsonValue,
+        _source_definition: &str,
+        _base_uuid: Option<Uuid>,
+    ) -> Result<Uuid, sqlx::Error> {
+        Err(sqlx::Error::Protocol(
+            "Atomic definition publication is not supported by this adapter".into(),
+        ))
+    }
     /// Loads the latest inserted definition matching the key and effective dates.
     ///
     /// An explicit version narrows the lookup; only active versions are eligible.
@@ -363,111 +376,31 @@ impl FluxproDbService for FluxproDbServiceImpl {
         compiled_process_def: JsonValue,
         source_definition: Option<&str>,
     ) -> Result<Uuid, sqlx::Error> {
-        let mut tr = self.db_pool.begin().await?;
-        // Serialize registration per key so insertion order is deterministic.
-        sqlx::query("select pg_advisory_xact_lock(hashtextextended($1, 1))")
-            .bind(process_def.key.get_id())
-            .execute(&mut *tr)
-            .await?;
-        let index_id: i32 = sqlx::query_scalar(
-            r#"select coalesce(max(index_id), 0) from fluxpro.process_definition where key_=$1"#,
+        self.register_process_definition(
+            process_def,
+            compiled_process_def,
+            source_definition,
+            false,
+            None,
         )
-        .bind(process_def.key.get_id())
-        .fetch_one(&mut *tr)
-        .await?;
-        let process_def_uuid: Uuid = sqlx::query_scalar(
-            r#"INSERT INTO
-                    fluxpro.process_definition
-                        (key_, version, index_id, status, effective_from, deprecated_at,
-                         version_comment, definition, source_definition)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING uuid"#,
+        .await
+    }
+
+    async fn publish_service_process_def(
+        &self,
+        process_def: &ProcessDefinition,
+        compiled_process_def: JsonValue,
+        source_definition: &str,
+        base_uuid: Option<Uuid>,
+    ) -> Result<Uuid, sqlx::Error> {
+        self.register_process_definition(
+            process_def,
+            compiled_process_def,
+            Some(source_definition),
+            true,
+            base_uuid,
         )
-        .bind(process_def.key.get_id())
-        .bind(process_def.version.as_str())
-        .bind(index_id + 1)
-        .bind("Draft")
-        .bind(process_def.effective_from.unwrap_or_else(Utc::now))
-        .bind(process_def.deprecated_at)
-        .bind(process_def.metadata.comment.as_deref())
-        .bind(compiled_process_def)
-        .bind(source_definition)
-        .fetch_one(&mut *tr)
-        .await?;
-        for node in &process_def.nodes {
-            sqlx::query(
-                r#"insert into fluxpro.process_def_node
-                    (process_def_uuid, node_id, definition) values ($1, $2, $3)
-                "#,
-            )
-            .bind(process_def_uuid)
-            .bind(node.id().get_id())
-            .bind(json!(node))
-            .execute(&mut *tr)
-            .await?;
-        }
-        for signal in &process_def.signals {
-            sqlx::query(
-                r#"insert into fluxpro.process_def_signal (
-                    process_def_uuid, signal_id
-                ) values ($1, $2)
-                "#,
-            )
-            .bind(process_def_uuid)
-            .bind(signal.name())
-            .execute(&mut *tr)
-            .await?;
-        }
-        for escalation in &process_def.escalations {
-            sqlx::query(
-                r#"insert into fluxpro.process_def_escalations (
-                    process_def_uuid, escalation_id, definition
-                ) values ($1, $2, $3)
-                "#,
-            )
-            .bind(process_def_uuid)
-            .bind(escalation.topic.get_id())
-            .bind(json!(escalation))
-            .execute(&mut *tr)
-            .await?;
-        }
-        for stage in &process_def.stages {
-            match stage {
-                StageDef::Obj {
-                    id,
-                    name,
-                    is_initial,
-                    is_final,
-                } => {
-                    sqlx::query(r#"insert into fluxpro.process_stage
-                            (process_def_uuid, stage_id, name, is_initial, is_final) VALUES ($1, $2, $3, $4, $5)
-                    "#).bind(process_def_uuid)
-                        .bind(id.get_id())
-                        .bind(name)
-                        .bind(is_initial)
-                        .bind(is_final)
-                        .execute(&mut *tr)
-                        .await?;
-                }
-                StageDef::Name(id) => {
-                    sqlx::query(r#"insert into fluxpro.process_stage
-                            (process_def_uuid, stage_id, name, is_initial, is_final) VALUES ($1, $2, $3, $4, $5)
-                    "#).bind(process_def_uuid)
-                        .bind(id.get_id())
-                        .bind(id.get_id())
-                        .bind(false)
-                        .bind(false)
-                        .execute(&mut *tr)
-                        .await?;
-                }
-            }
-        }
-        sqlx::query("update fluxpro.process_definition set status=$2 where uuid=$1")
-            .bind(process_def_uuid)
-            .bind(process_def.status.to_string())
-            .execute(&mut *tr)
-            .await?;
-        tr.commit().await?;
-        Ok(process_def_uuid)
+        .await
     }
 
     async fn get_current_process_def(
@@ -1216,4 +1149,148 @@ fn signal_from_row(row: sqlx::postgres::PgRow) -> anyhow::Result<PostSignal> {
         signal,
         context: payload.0,
     })
+}
+
+impl FluxproDbServiceImpl {
+    async fn register_process_definition(
+        &self,
+        process_def: &ProcessDefinition,
+        compiled_process_def: JsonValue,
+        source_definition: Option<&str>,
+        publication: bool,
+        base_uuid: Option<Uuid>,
+    ) -> Result<Uuid, sqlx::Error> {
+        let mut tr = self.db_pool.begin().await?;
+        // Serialize registration per key so insertion order is deterministic.
+        sqlx::query("select pg_advisory_xact_lock(hashtextextended($1, 1))")
+            .bind(process_def.key.get_id())
+            .execute(&mut *tr)
+            .await?;
+        if publication {
+            let versions: Vec<(Uuid, String)> = sqlx::query_as(
+                "select uuid, version from fluxpro.process_definition where key_=$1",
+            )
+            .bind(process_def.key.get_id())
+            .fetch_all(&mut *tr)
+            .await?;
+            if let Some(base) = base_uuid {
+                if !versions.iter().any(|(uuid, _)| *uuid == base) {
+                    return Err(sqlx::Error::Protocol(
+                        "The original version does not belong to this process key".into(),
+                    ));
+                }
+                for (_, version) in &versions {
+                    let version = VersionId::new(version).map_err(sqlx::Error::Protocol)?;
+                    if process_def.version <= version {
+                        return Err(sqlx::Error::Protocol(format!(
+                            "Choose a version newer than {version}; refresh if another publication has completed"
+                        )));
+                    }
+                }
+            } else if !versions.is_empty() {
+                return Err(sqlx::Error::Protocol(
+                    "This process key already exists. Open it to publish a new version".into(),
+                ));
+            }
+        }
+        let index_id: i32 = sqlx::query_scalar(
+            r#"select coalesce(max(index_id), 0) from fluxpro.process_definition where key_=$1"#,
+        )
+        .bind(process_def.key.get_id())
+        .fetch_one(&mut *tr)
+        .await?;
+        let process_def_uuid: Uuid = sqlx::query_scalar(
+            r#"INSERT INTO
+                    fluxpro.process_definition
+                        (key_, version, index_id, status, effective_from, deprecated_at,
+                         version_comment, definition, source_definition)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING uuid"#,
+        )
+        .bind(process_def.key.get_id())
+        .bind(process_def.version.as_str())
+        .bind(index_id + 1)
+        .bind("Draft")
+        .bind(process_def.effective_from.unwrap_or_else(Utc::now))
+        .bind(process_def.deprecated_at)
+        .bind(process_def.metadata.comment.as_deref())
+        .bind(compiled_process_def)
+        .bind(source_definition)
+        .fetch_one(&mut *tr)
+        .await?;
+        for node in &process_def.nodes {
+            sqlx::query(
+                r#"insert into fluxpro.process_def_node
+                    (process_def_uuid, node_id, definition) values ($1, $2, $3)
+                "#,
+            )
+            .bind(process_def_uuid)
+            .bind(node.id().get_id())
+            .bind(json!(node))
+            .execute(&mut *tr)
+            .await?;
+        }
+        for signal in &process_def.signals {
+            sqlx::query(
+                r#"insert into fluxpro.process_def_signal (
+                    process_def_uuid, signal_id
+                ) values ($1, $2)
+                "#,
+            )
+            .bind(process_def_uuid)
+            .bind(signal.name())
+            .execute(&mut *tr)
+            .await?;
+        }
+        for escalation in &process_def.escalations {
+            sqlx::query(
+                r#"insert into fluxpro.process_def_escalations (
+                    process_def_uuid, escalation_id, definition
+                ) values ($1, $2, $3)
+                "#,
+            )
+            .bind(process_def_uuid)
+            .bind(escalation.topic.get_id())
+            .bind(json!(escalation))
+            .execute(&mut *tr)
+            .await?;
+        }
+        for stage in &process_def.stages {
+            match stage {
+                StageDef::Obj {
+                    id,
+                    name,
+                    is_initial,
+                    is_final,
+                } => {
+                    sqlx::query(r#"insert into fluxpro.process_stage
+                            (process_def_uuid, stage_id, name, is_initial, is_final) VALUES ($1, $2, $3, $4, $5)
+                    "#).bind(process_def_uuid)
+                        .bind(id.get_id())
+                        .bind(name)
+                        .bind(is_initial)
+                        .bind(is_final)
+                        .execute(&mut *tr)
+                        .await?;
+                }
+                StageDef::Name(id) => {
+                    sqlx::query(r#"insert into fluxpro.process_stage
+                            (process_def_uuid, stage_id, name, is_initial, is_final) VALUES ($1, $2, $3, $4, $5)
+                    "#).bind(process_def_uuid)
+                        .bind(id.get_id())
+                        .bind(id.get_id())
+                        .bind(false)
+                        .bind(false)
+                        .execute(&mut *tr)
+                        .await?;
+                }
+            }
+        }
+        sqlx::query("update fluxpro.process_definition set status=$2 where uuid=$1")
+            .bind(process_def_uuid)
+            .bind(process_def.status.to_string())
+            .execute(&mut *tr)
+            .await?;
+        tr.commit().await?;
+        Ok(process_def_uuid)
+    }
 }

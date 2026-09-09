@@ -227,3 +227,33 @@ cargo check -p fluxpro-editor --features ssr
 cargo check -p fluxpro-editor --features hydrate --target wasm32-unknown-unknown
 cargo check -p fluxpro-editor --features csr --target wasm32-unknown-unknown
 ```
+
+## Publishing edited processes
+
+Use `on_change` to track changes by comparing `to_project_yaml()` to the original
+(including positions), and `on_save` to open your host's version/publish dialog.
+`next_publication_version()` suggests the next patch version;
+`prepare_publication(base, version)` validates the definition, preserves layout,
+clears the old UUID, activates the new version immediately and clears deprecation.
+For a new key, pass `None` as the base. The returned source from `to_project_yaml()`
+contains the coordinates for reopening; runtime compilation ignores that layout.
+
+After authorizing write access on the server, call the existing engine service's
+`publish_process_def_from_source(definition, source, base_uuid)`. It rechecks the
+base key and requires a version greater than every stored version under the same
+per-key transaction lock used for registration. New-key creation rejects existing
+keys. Concurrent duplicate publication fails without changing the prior version.
+Custom database/service adapters fail closed until they implement atomic publication.
+The original `create_process_def*` APIs keep their registration behavior.
+
+Both components follow an ancestor `.dark` or `[data-theme="dark"]`. Hosts can
+supply `--fluxpro-accent` to choose the main action color.
+
+For publication hosts, enable `require_applied_changes=true` and subscribe to
+`on_pending_change`. This also tracks settings or declaration input that has not
+been applied (including invalid values), so closing guards can protect it. Save
+and YAML export are disabled until those forms are applied or reloaded; switching
+away from a block or declaration with pending changes is guarded. Hosts should
+disable their own publish buttons while this callback reports true. `save_label`
+can label the toolbar action, for example “Save and publish…”. These props are
+optional; existing hosts keep their original behavior.

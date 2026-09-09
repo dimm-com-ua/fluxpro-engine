@@ -115,3 +115,26 @@ five seconds through the same public callback contract used by a real host.
 Tests cover version isolation, outdated request rejection, searching, filtered
 pagination with independent counts, history pagination, context snapshots,
 UUID-based closable tabs, read-only diagram rendering and remount identities.
+
+## Console embedding and server adapter
+
+`open_instance` is an optional reactive `Signal<Option<MonitorInstance>>`. It
+opens/selects a tab only when its exact scope matches the document. `instance_actions`
+is an optional `Callback<Signal<Option<MonitorInstanceDetails>>, AnyView>` rendered
+in the Events section. Hosts can implement authorized signal actions using the
+current detail signal and refresh their latest request on completion. Closing or
+switching versions disposes these action views. At most 25 tabs are opened.
+
+Set `show_instances=false` for a diagram-only presentation. On the server, enable
+`admin` and reuse `admin::monitor_document`, `admin::load_monitor_snapshot`, or
+`admin::load_definition_snapshot`. The last method never loads instance identities
+or context. Authorization remains the host's responsibility; choose the server
+method after checking the appropriate permission, never by trusting client UI.
+The adapter requires a persisted definition UUID and verifies key/version, filters
+before pagination, loads history in chunks up to 250, echoes errors and scopes,
+and maps unresolved incidents. History prefixes are bounded at 10000 entries.
+
+`escalation_counts_available` is false when support counts are unavailable; the
+health bar then labels those counts unknown. A host that enriches the snapshot
+with complete support counts can set it to true. Incident counts always use the
+engine's unresolved incident table, independently of the displayed page.

@@ -73,6 +73,15 @@ fn DraftActions(
     baseline: RwSignal<Value>,
     node: Option<String>,
 ) -> impl IntoView {
+    let pending_key = StoredValue::new(
+        node.as_ref()
+            .map(|id| format!("node:{id}"))
+            .unwrap_or_else(|| "process".into()),
+    );
+    Effect::new(move |_| {
+        session.track_pending(pending_key.get_value(), draft.get() != baseline.get())
+    });
+    on_cleanup(move || session.track_pending(pending_key.get_value(), false));
     let node = StoredValue::new(node);
     let read = move || {
         session.state.with_untracked(|s| match node.get_value() {
@@ -288,6 +297,8 @@ mod render_tests {
                 .unwrap();
                 let session = Session {
                     state: RwSignal::new(EditorState::new(document)),
+                    pending_forms: RwSignal::new(Default::default()),
+                    require_applied_changes: false,
                     selected: RwSignal::new(Some(id.to_owned())),
                     connecting: RwSignal::new(None),
                     message: RwSignal::new(String::new()),

@@ -22,6 +22,8 @@ struct Drag {
 #[derive(Clone, Copy)]
 struct Session {
     state: RwSignal<EditorState>,
+    pending_forms: RwSignal<std::collections::BTreeSet<String>>,
+    require_applied_changes: bool,
     selected: RwSignal<Option<String>>,
     connecting: RwSignal<Option<String>>,
     message: RwSignal<String>,
@@ -38,6 +40,9 @@ impl Session {
     }
 
     fn add(self, kind: BlockKind, position: Position) {
+        if self.guard_node_change() {
+            return;
+        }
         let mut result = Err(String::new());
         self.state
             .update(|state| result = state.edit(|doc| doc.add_block(kind, position)));
@@ -50,7 +55,41 @@ impl Session {
         }
     }
 
+    fn track_pending(self, key: String, pending: bool) {
+        if self
+            .pending_forms
+            .with_untracked(|forms| forms.contains(&key))
+            != pending
+        {
+            self.pending_forms.update(|forms| {
+                if pending {
+                    forms.insert(key);
+                } else {
+                    forms.remove(&key);
+                }
+            });
+        }
+    }
+
+    fn guard_node_change(self) -> bool {
+        if self.require_applied_changes
+            && self
+                .pending_forms
+                .with_untracked(|forms| forms.iter().any(|key| key.starts_with("node:")))
+        {
+            self.message.set(
+                "Apply or reload the current block settings before selecting another block.".into(),
+            );
+            return true;
+        }
+        false
+    }
+
     fn select(self, id: String) {
+        if self.selected.get_untracked().as_deref() != Some(id.as_str()) && self.guard_node_change()
+        {
+            return;
+        }
         if let Some(source) = self.connecting.get_untracked() {
             self.edit(|doc| doc.connect(&source, &id, None));
             self.connecting.set(None);
@@ -98,9 +137,20 @@ pub fn ProcessEditor(
     /// Called when Save is clicked. If omitted, Save opens the YAML export panel.
     #[prop(optional)]
     on_save: Option<Callback<EditorDocument>>,
+    /// Label for the host-provided save or publication action.
+    #[prop(default = "Save")]
+    save_label: &'static str,
+    /// Notifies the host about uncommitted settings/declaration forms, including invalid input.
+    #[prop(optional)]
+    on_pending_change: Option<Callback<bool>>,
+    /// Prevent Save/export and switching edited blocks until their forms are applied.
+    #[prop(optional)]
+    require_applied_changes: bool,
 ) -> impl IntoView {
     let session = Session {
         state: RwSignal::new(EditorState::new(document)),
+        pending_forms: RwSignal::new(Default::default()),
+        require_applied_changes,
         selected: RwSignal::new(None),
         connecting: RwSignal::new(None),
         message: RwSignal::new(String::new()),
@@ -108,6 +158,14 @@ pub fn ProcessEditor(
         reveal_node: RwSignal::new(None),
         reveal_declaration: RwSignal::new(None),
     };
+    Effect::new(move |_| {
+        let pending = session.pending_forms.with(|forms| !forms.is_empty());
+        if let Some(callback) = on_pending_change {
+            callback.run(pending);
+        }
+    });
+    let pending =
+        move || require_applied_changes && session.pending_forms.with(|forms| !forms.is_empty());
     let active_tab = RwSignal::new(EditorTab::Process);
     let yaml_open = RwSignal::new(false);
     let yaml = RwSignal::new(String::new());
@@ -157,11 +215,12 @@ pub fn ProcessEditor(
                     <button type="button" title="Undo · ⌘Z" aria-label="Undo" disabled=move || !session.state.with(|s| s.can_undo()) on:click=move |_| session.state.update(EditorState::undo)>"↶"</button>
                     <button type="button" title="Redo · ⌘⇧Z" aria-label="Redo" disabled=move || !session.state.with(|s| s.can_redo()) on:click=move |_| session.state.update(EditorState::redo)>"↷"</button>
                     <button type="button" disabled=move || active_tab.get() != EditorTab::Process on:click=move |_| { session.reveal_node.set(None); session.edit(|doc| { doc.auto_layout(); Ok(()) }); session.reset_view.update(|revision| *revision += 1); }>"↓ Arrange"</button>
-                    <button type="button" on:click=move |_| open_yaml()>"YAML"</button>
-                    <button type="button" class="fp-primary" on:click=move |_| {
+                    <button type="button" disabled=pending on:click=move |_| open_yaml()>"YAML"</button>
+                    <button type="button" class="fp-primary" disabled=pending title=move ||if pending(){"Apply pending form changes before saving"}else{"Save process"} on:click=move |_| {
+                        if pending() {return;}
                         if let Some(callback) = on_save { callback.run(session.state.with_untracked(|s| s.document.clone())); }
                         else { open_yaml(); }
-                    }>"Save"</button>
+                    }>{save_label}</button>
                 </div>
             </header>
             <div inert=move || yaml_open.get()><EditorTabs session=session active=active_tab/></div>
@@ -348,6 +407,11 @@ fn ProcessCanvas(session: Session) -> impl IntoView {
                 .state
                 .with_untracked(|s| s.document.positions.get(&id).copied().unwrap_or_default());
             if !event.meta_key() {
+                if session.selected.get_untracked().as_deref() != Some(id.as_str())
+                    && session.guard_node_change()
+                {
+                    return;
+                }
                 session.state.update(EditorState::checkpoint);
                 session.selected.set(Some(id.clone()));
             }
@@ -524,4 +588,35 @@ fn gesture_number(event: &ev::Event, property: &str) -> Option<f64> {
         .ok()?
         .as_f64()
         .filter(|value| value.is_finite())
+}
+
+#[cfg(test)]
+mod embedding_tests {
+    use super::*;
+    #[test]
+    fn pending_node_edits_block_selection_only_when_host_requests_it() {
+        Owner::new().with(|| {
+            let mut session = Session {
+                state: RwSignal::new(EditorState::new(EditorDocument::default())),
+                pending_forms: RwSignal::new(Default::default()),
+                require_applied_changes: true,
+                selected: RwSignal::new(Some("start".into())),
+                connecting: RwSignal::new(None),
+                message: RwSignal::new(String::new()),
+                reset_view: RwSignal::new(0),
+                reveal_node: RwSignal::new(None),
+                reveal_declaration: RwSignal::new(None),
+            };
+            session.track_pending("node:start".into(), true);
+            session.select("finish".into());
+            assert_eq!(session.selected.get_untracked().as_deref(), Some("start"));
+            session.track_pending("node:start".into(), false);
+            session.select("finish".into());
+            assert_eq!(session.selected.get_untracked().as_deref(), Some("finish"));
+            session.track_pending("node:finish".into(), true);
+            session.require_applied_changes = false;
+            session.select("start".into());
+            assert_eq!(session.selected.get_untracked().as_deref(), Some("start"));
+        });
+    }
 }

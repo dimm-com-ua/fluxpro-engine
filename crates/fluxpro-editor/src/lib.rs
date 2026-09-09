@@ -19,3 +19,9 @@ pub use document::{BlockKind, Connection, EditorDocument, Position};
 
 /// Scoped styles, also inserted by [`ProcessEditor`].
 pub const EDITOR_CSS: &str = include_str!("editor.css");
+
+/// Optional server-side adapter for the engine administration service.
+#[cfg(feature = "admin")]
+pub mod admin;
+
+mod publication;
