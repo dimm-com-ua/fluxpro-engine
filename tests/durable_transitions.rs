@@ -1594,6 +1594,67 @@ async fn failed_resume_rolls_back_resolution_state_and_retry_budget(pool: PgPool
     assert_eq!(f.claim().await.uuid, task.uuid);
 }
 
+#[sqlx::test(migrations = false)]
+#[ignore = "requires PostgreSQL DATABASE_URL; CI runs this suite explicitly"]
+async fn repeated_resume_releases_instance_lock_before_returning(pool: PgPool) {
+    let f = Fixture::new(pool, definition(true)).await;
+    let token = f.start().await;
+    f.run().await;
+    let task = f.claim().await;
+    assert_eq!(
+        f.service
+            .process_task(task.clone(), registry())
+            .await
+            .unwrap(),
+        TaskProcessOutcome::Suspended
+    );
+    let incident = f.db.get_open_incident(&token).await.unwrap().unwrap();
+    assert!(f.db.resume_instance(&token, incident.uuid).await.unwrap());
+
+    // SQLx flushes Drop's queued rollback after after_release. Hold that pool
+    // cleanup here, so a worker on another connection observes any leaked lock
+    // deterministically rather than depending on scheduler timing.
+    let releasing = Arc::new(Notify::new());
+    let allow_release = Arc::new(Notify::new());
+    let resume_pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .after_release({
+            let releasing = releasing.clone();
+            let allow_release = allow_release.clone();
+            move |_, _| {
+                let releasing = releasing.clone();
+                let allow_release = allow_release.clone();
+                Box::pin(async move {
+                    releasing.notify_one();
+                    allow_release.notified().await;
+                    Ok(true)
+                })
+            }
+        })
+        .connect_lazy_with((*f.pool.connect_options()).clone());
+    let resume_db = FluxproDbServiceImpl::new(resume_pool.clone());
+    assert!(
+        !resume_db
+            .resume_instance(&token, incident.uuid)
+            .await
+            .unwrap()
+    );
+    timeout(StdDuration::from_secs(5), releasing.notified())
+        .await
+        .expect("resume connection entered pool cleanup");
+
+    let claimed = f.db.fetch_queue_task(&id("worker"), 30_000).await;
+    allow_release.notify_one();
+    timeout(StdDuration::from_secs(5), resume_pool.close())
+        .await
+        .expect("resume pool cleanup completed");
+    let claimed = claimed
+        .unwrap()
+        .expect("a no-op resume must release its instance lock before returning");
+    assert_eq!(claimed.uuid, task.uuid);
+    assert_eq!(claimed.attempts, 1);
+}
+
 #[cfg(feature = "admin")]
 #[sqlx::test(migrations = false)]
 #[ignore = "requires PostgreSQL DATABASE_URL; CI runs this suite explicitly"]

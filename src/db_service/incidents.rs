@@ -60,6 +60,10 @@ impl FluxproDbServiceImpl {
         let incident = sqlx::query("select task_uuid from fluxpro.process_incident where uuid=$1 and process_instance_uuid=$2 and resolved_at is null for update")
             .bind(incident_id).bind(instance).fetch_optional(&mut *tx).await?;
         let Some(incident) = incident else {
+            // Drop only queues SQLx's rollback. Release the instance row lock
+            // before returning, so an immediate SKIP LOCKED claim can see the
+            // task already made runnable by an earlier successful resume.
+            tx.rollback().await?;
             return Ok(false);
         };
         let task: Uuid = incident.try_get("task_uuid")?;
