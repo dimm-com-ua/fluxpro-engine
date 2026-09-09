@@ -149,6 +149,31 @@ impl Fixture {
     }
 }
 
+fn pool_with_paused_release(source: &PgPool) -> (PgPool, Arc<Notify>, Arc<Notify>) {
+    // SQLx flushes Drop's queued rollback after after_release. Hold that pool
+    // cleanup here, so a worker on another connection observes any leaked lock
+    // deterministically rather than depending on scheduler timing.
+    let releasing = Arc::new(Notify::new());
+    let allow_release = Arc::new(Notify::new());
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .after_release({
+            let releasing = releasing.clone();
+            let allow_release = allow_release.clone();
+            move |_, _| {
+                let releasing = releasing.clone();
+                let allow_release = allow_release.clone();
+                Box::pin(async move {
+                    releasing.notify_one();
+                    allow_release.notified().await;
+                    Ok(true)
+                })
+            }
+        })
+        .connect_lazy_with((*source.connect_options()).clone());
+    (pool, releasing, allow_release)
+}
+
 fn command() -> StartProcessInstance {
     StartProcessInstance {
         process_id: id("business_instance"),
@@ -552,12 +577,25 @@ async fn expired_owner_cannot_commit_after_task_is_reclaimed(pool: PgPool) {
     .execute(&f.pool)
     .await
     .unwrap();
+    let (commit_pool, releasing, allow_release) = pool_with_paused_release(&f.pool);
+    let old_db = FluxproDbServiceImpl::new(commit_pool.clone());
     assert!(
-        f.db.commit_task_execution(&old, &snapshot, TaskExecutionChanges::default())
+        old_db
+            .commit_task_execution(&old, &snapshot, TaskExecutionChanges::default())
             .await
             .is_err()
     );
-    let new = f.claim().await;
+    timeout(StdDuration::from_secs(5), releasing.notified())
+        .await
+        .expect("failed commit connection entered pool cleanup");
+    let reclaimed = f.db.fetch_queue_task(&id("new_owner"), 30_000).await;
+    allow_release.notify_one();
+    timeout(StdDuration::from_secs(5), commit_pool.close())
+        .await
+        .expect("failed commit pool cleanup completed");
+    let new = reclaimed
+        .unwrap()
+        .expect("a rejected commit must release its instance lock before returning");
     assert_eq!(old.uuid, new.uuid);
     assert_ne!(old.lock_key, new.lock_key);
     assert!(
@@ -1685,27 +1723,7 @@ async fn repeated_resume_releases_instance_lock_before_returning(pool: PgPool) {
     let incident = f.db.get_open_incident(&token).await.unwrap().unwrap();
     assert!(f.db.resume_instance(&token, incident.uuid).await.unwrap());
 
-    // SQLx flushes Drop's queued rollback after after_release. Hold that pool
-    // cleanup here, so a worker on another connection observes any leaked lock
-    // deterministically rather than depending on scheduler timing.
-    let releasing = Arc::new(Notify::new());
-    let allow_release = Arc::new(Notify::new());
-    let resume_pool = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(1)
-        .after_release({
-            let releasing = releasing.clone();
-            let allow_release = allow_release.clone();
-            move |_, _| {
-                let releasing = releasing.clone();
-                let allow_release = allow_release.clone();
-                Box::pin(async move {
-                    releasing.notify_one();
-                    allow_release.notified().await;
-                    Ok(true)
-                })
-            }
-        })
-        .connect_lazy_with((*f.pool.connect_options()).clone());
+    let (resume_pool, releasing, allow_release) = pool_with_paused_release(&f.pool);
     let resume_db = FluxproDbServiceImpl::new(resume_pool.clone());
     assert!(
         !resume_db

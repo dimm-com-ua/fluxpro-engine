@@ -303,6 +303,7 @@ pub(super) async fn commit(
     changes: TaskExecutionChanges,
 ) -> anyhow::Result<()> {
     let mut tx = db.db_pool.begin().await?;
+    let result: anyhow::Result<()> = async {
     let instance = sqlx::query(
         "select uuid, execution_state, process_def_uuid, revision, node_visit_id, wait_completed \
         from fluxpro.process_instance where token=$1 for update",
@@ -413,6 +414,15 @@ pub(super) async fn commit(
             .bind(task.uuid).bind(&task.lock_key).execute(&mut *tx).await?.rows_affected()
     };
     anyhow::ensure!(affected == 1, "task lease expired before transition commit");
+        Ok(())
+    }
+    .await;
+    if let Err(error) = result {
+        // Drop only queues SQLx rollback. Release all row locks before a caller
+        // retries or another worker tries to reclaim this task with SKIP LOCKED.
+        tx.rollback().await?;
+        return Err(error);
+    }
     tx.commit().await?;
     Ok(())
 }

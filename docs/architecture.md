@@ -57,6 +57,9 @@ and lease ownership, and writes all transition effects together. Context,
 stage/history, node visit, wait completion, durable events, successors, and
 source-task deletion or retry release either all commit or all roll back.
 An expired or superseded attempt cannot overwrite a newer committed revision.
+Rejected transition writes explicitly await transaction rollback before returning
+the error. This releases row locks before an immediate `SKIP LOCKED` dequeue;
+reclaiming an expired task does not depend on deferred pool cleanup.
 
 A wait has a UUID per node visit and an explicit completion flag. Signals
 admitted at that wait and timeouts refer to that UUID. The first accepted event
