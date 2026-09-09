@@ -1,4 +1,4 @@
-use fluxpro_engine::models::process_def::{Node, ProcessDefinition};
+use crate::models::process_def::{Node, ProcessDefinition};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashSet, VecDeque};
@@ -288,9 +288,9 @@ impl EditorDocument {
             positions: BTreeMap::new(),
         };
         for kind in [
-            crate::declarations::DeclarationKind::Form,
-            crate::declarations::DeclarationKind::Signal,
-            crate::declarations::DeclarationKind::Escalation,
+            crate::editor::declarations::DeclarationKind::Form,
+            crate::editor::declarations::DeclarationKind::Signal,
+            crate::editor::declarations::DeclarationKind::Escalation,
         ] {
             let mut ids = HashSet::new();
             for id in document.declaration_ids(kind) {
@@ -741,11 +741,9 @@ impl EditorDocument {
     pub fn diagnostics(&self) -> Vec<String> {
         let mut messages = match self.definition.validate() {
             Ok(()) => Vec::new(),
-            Err(
-                fluxpro_engine::models::process_def_error::CreateProcessError::ValidationError(
-                    errors,
-                ),
-            ) => errors,
+            Err(crate::models::process_def_error::CreateProcessError::ValidationError(errors)) => {
+                errors
+            }
             Err(error) => vec![error.to_string()],
         };
         let edges = self.connections();

@@ -1,5 +1,5 @@
 use super::Session;
-use crate::settings::{duration_parts, duration_value};
+use crate::editor::settings::{duration_parts, duration_value};
 use leptos::prelude::*;
 use serde_json::{Value, json};
 

@@ -1,4 +1,4 @@
-use fluxpro_editor::*;
+use fluxpro_engine::editor::*;
 use serde_json::json;
 
 // Explicitly simulated data for exercising the public host callback contract.

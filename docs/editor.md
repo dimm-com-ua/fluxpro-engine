@@ -1,22 +1,29 @@
 # FluxPro Editor
 
 Embeddable Leptos 0.8 components for authoring and monitoring FluxPro processes.
-The editor depends on the engine's models, with no database, HTTP server,
+The `fluxpro_engine::editor` module uses the engine's models, with no database, HTTP server,
 router, or application shell. Requires Rust 1.88 or newer.
+
+The editor is shipped in the same crates.io package as the engine. The base
+`editor` feature enables the components and document models; the three mode
+features also enable `editor`. Add `admin` alongside `editor-ssr` to use
+`fluxpro_engine::editor::admin` on the server. Backend `full` remains unchanged
+and does not enable UI dependencies. The old separate `fluxpro-editor` package
+has been removed; replace its imports with `fluxpro_engine::editor`.
 
 ## Embed
 
-Choose the Leptos mode matching the host application (`csr`, `hydrate`, or
-`ssr`); enable only one mode per build target. During local development:
+Choose the Leptos mode matching the host application (`editor-csr`, `editor-hydrate`, or
+`editor-ssr`); enable only one mode per build target:
 
 ```toml
 [dependencies]
-fluxpro-editor = { path = "path/to/fluxpro-engine/crates/fluxpro-editor", features = ["csr"] }
+fluxpro-engine = { version = "0.1.5", features = ["editor-csr"] }
 leptos = { version = "0.8.20", features = ["csr"] }
 ```
 
 ```rust,no_run
-use fluxpro_editor::{EditorDocument, ProcessEditor};
+use fluxpro_engine::editor::{EditorDocument, ProcessEditor};
 use leptos::prelude::*;
 
 #[component]
@@ -43,7 +50,7 @@ fn ProcessDesigner() -> impl IntoView {
 ```
 
 `ProcessEditor` is the authoring component. Its props are all optional.
-The independent `ProcessMonitor` component is described in [MONITOR.md](MONITOR.md):
+The independent `ProcessMonitor` component is described in [editor-monitor.md](editor-monitor.md):
 
 | Prop | Meaning |
 | --- | --- |
@@ -178,13 +185,13 @@ The crate also exports a separate, read-only `<ProcessMonitor />`: live node
 counts, error/escalation markers, instance search and pagination, closable
 instance tabs, execution/stage/signal history and context inspection. It accepts
 reactive snapshots and requests data through a host callback. See
-[the monitoring integration guide](MONITOR.md) for the full transport contract
+[the monitoring integration guide](editor-monitor.md) for the full transport contract
 and mappings to FluxPro administration queries.
 
 ## YAML interchange
 
 ```rust
-use fluxpro_editor::EditorDocument;
+use fluxpro_engine::editor::EditorDocument;
 
 let yaml = "key: demo\nname: Demo\nversion: 1.0.0\nstatus: draft\nnodes:\n  - { id: start, type: Start, next: finish }\n  - { id: finish, type: End }\n";
 let document = EditorDocument::from_yaml(yaml).unwrap();
@@ -218,8 +225,7 @@ From the repository root, with Trunk installed:
 
 ```sh
 rustup target add wasm32-unknown-unknown
-cd crates/fluxpro-editor
-trunk serve --open
+trunk serve examples/editor-demo/index.html --open
 ```
 
 The example opens the existing approval process and runs entirely in the browser.
@@ -227,10 +233,10 @@ The example opens the existing approval process and runs entirely in the browser
 ## Checks
 
 ```sh
-cargo test -p fluxpro-editor
-cargo check -p fluxpro-editor --features ssr
-cargo check -p fluxpro-editor --features hydrate --target wasm32-unknown-unknown
-cargo check -p fluxpro-editor --features csr --target wasm32-unknown-unknown
+cargo test --features editor-ssr
+cargo check --features editor-ssr
+cargo check --features editor-hydrate --target wasm32-unknown-unknown
+cargo check --features editor-csr --target wasm32-unknown-unknown
 ```
 
 ## Publishing edited processes

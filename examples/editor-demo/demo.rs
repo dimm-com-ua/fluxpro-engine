@@ -3,13 +3,13 @@ mod monitor_data;
 
 #[cfg(target_arch = "wasm32")]
 fn main() {
-    use fluxpro_editor::{
+    use fluxpro_engine::editor::{
         EditorDocument, MonitorRequest, MonitorSnapshot, ProcessEditor, ProcessMonitor,
     };
     use leptos::prelude::*;
     leptos::mount::mount_to_body(move || {
         let document = RwSignal::new(
-            EditorDocument::from_yaml(include_str!("../../../examples/definitions/approval.yaml"))
+            EditorDocument::from_yaml(include_str!("../definitions/approval.yaml"))
                 .expect("valid example process"),
         );
         let snapshot = RwSignal::new(MonitorSnapshot::default());
@@ -36,5 +36,5 @@ fn main() {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
-    println!("Run: cd crates/fluxpro-editor && trunk serve --open");
+    println!("Run: trunk serve examples/editor-demo/index.html --open");
 }

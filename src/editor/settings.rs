@@ -1,5 +1,5 @@
-use crate::document::{BlockKind, EditorDocument};
-use fluxpro_engine::models::process_def::{Node, ProcessDefinition};
+use crate::editor::document::{BlockKind, EditorDocument};
+use crate::models::process_def::{Node, ProcessDefinition};
 use serde_json::{Value, json};
 use std::collections::HashSet;
 
@@ -156,13 +156,13 @@ pub(crate) fn duration_value(amount: &str, unit: &str) -> String {
 mod tests {
     use super::*;
     const EXAMPLES: &[&str] = &[
-        include_str!("../../../examples/definitions/approval.yaml"),
-        include_str!("../../../tests/fixtures/cash_loan.yaml"),
-        include_str!("../../../tests/fixtures/tk_online.yaml"),
-        include_str!("../../../examples/definitions/reviewed/cash_loan.yaml"),
-        include_str!("../../../examples/definitions/reviewed/tk_online.yaml"),
-        include_str!("../../../tests/fixtures/submitted/cash_loan.yaml"),
-        include_str!("../../../tests/fixtures/submitted/tk_online.yaml"),
+        include_str!("../../examples/definitions/approval.yaml"),
+        include_str!("../../tests/fixtures/cash_loan.yaml"),
+        include_str!("../../tests/fixtures/tk_online.yaml"),
+        include_str!("../../examples/definitions/reviewed/cash_loan.yaml"),
+        include_str!("../../examples/definitions/reviewed/tk_online.yaml"),
+        include_str!("../../tests/fixtures/submitted/cash_loan.yaml"),
+        include_str!("../../tests/fixtures/submitted/tk_online.yaml"),
     ];
     #[test]
     fn every_example_survives_every_settings_form_without_data_loss() {
@@ -249,7 +249,7 @@ mod tests {
         );
         // Layout and node changes do not invalidate an unrelated process draft.
         let current = process_settings(&doc);
-        doc.move_node("prepare", crate::Position::new(123.0, 456.0));
+        doc.move_node("prepare", crate::editor::Position::new(123.0, 456.0));
         doc.save_process_settings(&current, current.clone())
             .unwrap();
     }

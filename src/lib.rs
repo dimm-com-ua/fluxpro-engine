@@ -2,11 +2,15 @@
 //!
 //! The default build exposes models and the service-handler contract. Enable `db`
 //! for PostgreSQL persistence, `runtime` for execution, `api` for Actix Web routes,
-//! `admin` for inspection and maintenance, or `full` for all integrations.
+//! `admin` for inspection and maintenance, or `full` for all backend integrations.
+//! Enable `editor` for Leptos authoring and monitoring components (Rust 1.88+).
 //!
 //! Start with [`models::process_def::ProcessDefinition`] and
 //! [`traits::node_handlers::service_node_handler::FluxproServiceHandler`].
 //! The repository's `docs/nodes.md` describes every node and its runtime behavior.
+
+#[cfg(feature = "editor")]
+pub mod editor;
 
 pub mod models;
 pub mod traits;

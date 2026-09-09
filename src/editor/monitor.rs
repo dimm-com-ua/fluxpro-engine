@@ -1,5 +1,5 @@
 //! Transport-independent models for the live process monitor.
-use crate::EditorDocument;
+use crate::editor::EditorDocument;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 

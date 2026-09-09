@@ -1,5 +1,5 @@
 use super::MonitorSession;
-use crate::{
+use crate::editor::{
     BlockKind, Position,
     viewport::{MAX_ZOOM, MIN_ZOOM, clamp_zoom, zoom_scroll},
 };
@@ -118,8 +118,8 @@ pub(super) fn MonitorCanvas(session: MonitorSession) -> impl IntoView {
                             on:click=move |event|{if !event.meta_key(){session.active.set(None);session.query(|q|q.node_id=Some(id.get_value()));}}>
                             <span class="fm-node-icon">{kind.symbol()}</span><span class="fm-node-title"><strong>{kind.label()}</strong><small>{id.get_value()}</small></span>
                             <span class="fm-node-count">{move ||count.get().map(|c|c.instance_count.to_string()).unwrap_or("—".into())}</span>
-                            <crate::components::BranchRows routes=Signal::derive(move ||session.document.with(|d|d.branch_routes(&id.get_value())))/>
-                            <crate::components::SpecialRoutePorts routes=Signal::derive(move ||session.document.with(|d|d.special_routes(&id.get_value())))/>
+                            <crate::editor::components::BranchRows routes=Signal::derive(move ||session.document.with(|d|d.branch_routes(&id.get_value())))/>
+                            <crate::editor::components::SpecialRoutePorts routes=Signal::derive(move ||session.document.with(|d|d.special_routes(&id.get_value())))/>
                             <span class="fm-node-alerts"><Show when=move ||count.get().is_some_and(|c|c.errors>0)><span class="fm-issue-error">{move ||format!("! {} errors",count.get().map_or(0,|c|c.errors))}</span></Show><Show when=move ||count.get().is_some_and(|c|c.escalations>0)><span class="fm-issue-escalation">{move ||format!("↑ {} escalated",count.get().map_or(0,|c|c.escalations))}</span></Show></span>
                         </button>}
                     }/>

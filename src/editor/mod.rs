@@ -1,8 +1,8 @@
 //! Embeddable workflow authoring and live monitoring for Leptos 0.8.
 //!
-//! Enable `csr`, `hydrate`, or `ssr` to match the host application. The engine
-//! dependency uses only its models; no server or database is required.
-//! See the crate README for embedding and the runnable browser example.
+//! Enable `editor-csr`, `editor-hydrate`, or `editor-ssr` to match the host application. The UI
+//! uses only engine models; no server or database is required.
+//! See `docs/editor.md` for embedding and the runnable browser example.
 
 mod components;
 mod declarations;

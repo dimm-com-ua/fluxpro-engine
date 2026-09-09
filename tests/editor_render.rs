@@ -1,13 +1,14 @@
-#![cfg(feature = "ssr")]
+#![cfg(feature = "editor")]
+#![cfg(feature = "editor-ssr")]
 
-use fluxpro_editor::{EditorDocument, ProcessEditor};
+use fluxpro_engine::editor::{EditorDocument, ProcessEditor};
 use leptos::prelude::*;
 
 #[test]
 fn editor_and_monitor_render_the_same_visible_branch_rows() {
-    use fluxpro_editor::{MonitorSnapshot, ProcessMonitor};
+    use fluxpro_engine::editor::{MonitorSnapshot, ProcessMonitor};
     Owner::new().with(|| {
-        let document = EditorDocument::from_yaml(include_str!("../../../examples/definitions/approval.yaml")).unwrap();
+        let document = EditorDocument::from_yaml(include_str!("../examples/definitions/approval.yaml")).unwrap();
         let expected: usize = document.definition.nodes.iter().map(|node| document.branch_routes(node.id().get_id()).len()).sum();
         let special = document.connections().iter().filter(|edge|edge.special_outlet().is_some()).count();
         assert!(expected >= 2);
@@ -56,7 +57,7 @@ fn single_public_component_renders_without_browser_or_application_context() {
 
 #[test]
 fn monitor_accepts_a_host_selected_instance_and_action_slot() {
-    use fluxpro_editor::{MonitorInstance, MonitorScope, MonitorSnapshot, ProcessMonitor};
+    use fluxpro_engine::editor::{MonitorInstance, MonitorScope, MonitorSnapshot, ProcessMonitor};
     Owner::new().with(|| {
         let document=EditorDocument::default();
         let scope=MonitorScope::from_document(&document);

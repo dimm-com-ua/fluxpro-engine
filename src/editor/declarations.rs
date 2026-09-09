@@ -1,6 +1,6 @@
 //! Editing process-level declarations without changing executable node types.
-use crate::EditorDocument;
-use fluxpro_engine::models::{
+use crate::editor::EditorDocument;
+use crate::models::{
     context_map::context_map::ContextValue,
     id_field::IdField,
     process_def::{FormDef, Node, SignalDef, WaitFor, escalation_def::EscalationDef},
@@ -414,7 +414,7 @@ fn node_conditions_contain(node: &Node, id: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{BlockKind, Position, document::EditorState};
+    use crate::editor::{BlockKind, Position, document::EditorState};
 
     fn with_user_task() -> (EditorDocument, String) {
         let mut doc = EditorDocument::default();
@@ -489,7 +489,7 @@ mod tests {
     #[test]
     fn conditions_are_reported_and_never_silently_rewritten() {
         let mut doc =
-            EditorDocument::from_yaml(include_str!("../../../examples/definitions/approval.yaml"))
+            EditorDocument::from_yaml(include_str!("../../examples/definitions/approval.yaml"))
                 .unwrap();
         let before = doc.to_project_yaml().unwrap();
         let error = doc

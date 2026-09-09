@@ -1,4 +1,4 @@
-use crate::Position;
+use crate::editor::Position;
 
 pub(crate) const MIN_ZOOM: f64 = 0.25;
 pub(crate) const MAX_ZOOM: f64 = 2.5;

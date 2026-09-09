@@ -19,7 +19,10 @@ application needs:
 - `api` — Actix Web HTTP handlers (includes `runtime`).
 - `admin` — read and safely manage process definitions, instances, contexts,
   stage history, and queued tasks (includes `db`).
-- `full` — all currently available integrations.
+- `full` — all backend integrations (kept compatible; does not enable the UI).
+- `editor` — Leptos process authoring and monitoring components (Rust 1.88+).
+- `editor-csr`, `editor-hydrate`, `editor-ssr` — editor plus the corresponding
+  Leptos rendering mode. Choose one mode per build target.
 
 ```toml
 [dependencies]
@@ -33,12 +36,21 @@ The crate has no dependency on the Lendiq application or its workspace crates.
 
 ## Visual process editor
 
-The workspace also contains [`fluxpro-editor`](crates/fluxpro-editor/README.md),
-a separate Leptos 0.8 crate exporting one embeddable `<ProcessEditor />` component.
-It provides vertical drag-and-drop authoring, YAML import/export, smooth
-connections, manual layout, and undo/redo. Pass a document and optional
-`on_change` / `on_save` callbacks to integrate with an existing interface.
-The engine has no dependency on Leptos; the editor uses its default model layer.
+The [`editor` module](docs/editor.md) exports embeddable `ProcessEditor` and
+`ProcessMonitor` Leptos 0.8 components from this package:
+
+```toml
+fluxpro-engine = { version = "0.1.5", features = ["editor-csr"] }
+```
+
+```rust,ignore
+use fluxpro_engine::editor::{EditorDocument, ProcessEditor, ProcessMonitor};
+```
+
+The editor provides drag-and-drop authoring, YAML import/export, layout,
+undo/redo, and live instance monitoring. Add `admin` to `editor-ssr` for the
+server-side administration adapter. Leptos and browser dependencies remain
+optional; the default and backend `full` builds do not enable them.
 
 ## Documentation and examples
 
@@ -63,7 +75,7 @@ cargo run --features api --example validate_yaml
 
 The [approval workflow](examples/definitions/approval.yaml) combines `Start`,
 `ServiceTask`, `UserTask`, `Gateway`, `Wait`, and `End`. Generate the complete
-Rust API reference with `cargo doc --all-features --no-deps`.
+Rust API reference with `cargo doc --features full,migration-repair,editor-ssr --no-deps`.
 
 ## Publishing
 
@@ -75,7 +87,7 @@ To validate a release locally:
 
 ```bash
 cargo fmt --all -- --check
-cargo test --all-features
+cargo test --features full,migration-repair,editor-ssr
 cargo package
 ```
 

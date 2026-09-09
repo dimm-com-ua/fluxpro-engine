@@ -1,10 +1,10 @@
 mod declarations;
 mod fields;
 mod settings;
-use crate::EDITOR_CSS;
-use crate::declarations::DeclarationKind;
-use crate::document::{BlockKind, EditorDocument, EditorState, Position};
-use crate::viewport::{MAX_ZOOM, MIN_ZOOM, canvas_point, clamp_zoom, zoom_scroll};
+use crate::editor::EDITOR_CSS;
+use crate::editor::declarations::DeclarationKind;
+use crate::editor::document::{BlockKind, EditorDocument, EditorState, Position};
+use crate::editor::viewport::{MAX_ZOOM, MIN_ZOOM, canvas_point, clamp_zoom, zoom_scroll};
 use declarations::{DeclarationPanel, EditorTab, EditorTabs};
 use leptos::{ev, html, prelude::*};
 use settings::{ProcessInspector, ProcessSettings};
@@ -12,11 +12,13 @@ use wasm_bindgen::JsCast;
 
 /// The same condition rows and outlet colors are used by both canvas renderers.
 #[component]
-pub(crate) fn BranchRows(#[prop(into)] routes: Signal<Vec<crate::Connection>>) -> impl IntoView {
+pub(crate) fn BranchRows(
+    #[prop(into)] routes: Signal<Vec<crate::editor::Connection>>,
+) -> impl IntoView {
     view! {
         <span class="fp-branch-rows">
             {move || routes.get().into_iter().enumerate().map(|(index, edge)| view! {
-                <span class="fp-branch-row" style=format!("--fp-branch-color:{}", crate::document::branch_color(index))
+                <span class="fp-branch-row" style=format!("--fp-branch-color:{}", crate::editor::document::branch_color(index))
                     title=format!("{} → {}", edge.label, edge.target)>
                     <span class="fp-branch-condition">{edge.label.clone()}</span>
                     <span class="fp-branch-outlet" aria-hidden="true"></span>
@@ -28,7 +30,7 @@ pub(crate) fn BranchRows(#[prop(into)] routes: Signal<Vec<crate::Connection>>) -
 
 #[component]
 pub(crate) fn SpecialRoutePorts(
-    #[prop(into)] routes: Signal<Vec<crate::Connection>>,
+    #[prop(into)] routes: Signal<Vec<crate::editor::Connection>>,
 ) -> impl IntoView {
     view! {
         {move || routes.get().into_iter().filter_map(|edge| {
@@ -139,7 +141,7 @@ impl Session {
 /// component makes no network requests and does not persist data by itself.
 ///
 /// ```rust,no_run
-/// use fluxpro_editor::{EditorDocument, ProcessEditor};
+/// use fluxpro_engine::editor::{EditorDocument, ProcessEditor};
 /// use leptos::prelude::*;
 ///
 /// # fn example() -> impl IntoView {

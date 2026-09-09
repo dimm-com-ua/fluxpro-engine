@@ -1,5 +1,5 @@
 use super::MonitorSession;
-use crate::monitor::*;
+use crate::editor::monitor::*;
 use leptos::prelude::*;
 use serde_json::Value;
 

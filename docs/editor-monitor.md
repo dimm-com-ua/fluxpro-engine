@@ -1,11 +1,11 @@
 # Embedding the live monitor
 
-`ProcessMonitor` is the second public UI component in `fluxpro-editor`. It is
+`ProcessMonitor` is the second public UI component in `fluxpro_engine::editor`. It is
 independent of `ProcessEditor`, read-only, and uses the same saved node positions,
 vertical layout, smooth connectors, trackpad zoom and Command + drag navigation.
 
 ```rust,no_run
-use fluxpro_editor::{EditorDocument, MonitorRequest, MonitorSnapshot, ProcessMonitor};
+use fluxpro_engine::editor::{EditorDocument, MonitorRequest, MonitorSnapshot, ProcessMonitor};
 use leptos::prelude::*;
 
 // In your host component:

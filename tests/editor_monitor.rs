@@ -1,6 +1,7 @@
-#[path = "../demo/monitor_data.rs"]
+#![cfg(feature = "editor")]
+#[path = "../examples/editor-demo/monitor_data.rs"]
 mod monitor_data;
-use fluxpro_editor::*;
+use fluxpro_engine::editor::*;
 
 #[test]
 fn monitor_request_survives_server_function_form_transport() {

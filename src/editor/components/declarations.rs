@@ -1,5 +1,5 @@
 use super::Session;
-use crate::declarations::DeclarationKind;
+use crate::editor::declarations::DeclarationKind;
 use leptos::{ev, prelude::*};
 use serde_json::{Value, json};
 use wasm_bindgen::JsCast;

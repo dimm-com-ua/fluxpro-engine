@@ -1,6 +1,6 @@
 mod canvas;
 mod details;
-use crate::{EDITOR_CSS, EditorDocument, monitor::*};
+use crate::editor::{EDITOR_CSS, EditorDocument, monitor::*};
 use canvas::MonitorCanvas;
 use details::InstanceDetails;
 use leptos::prelude::*;
@@ -99,7 +99,7 @@ impl MonitorSession {
 /// Tabs are internal, closable views identified by instance UUID.
 ///
 /// ```rust,no_run
-/// use fluxpro_editor::{EditorDocument, ProcessMonitor, MonitorSnapshot, MonitorRequest};
+/// use fluxpro_engine::editor::{EditorDocument, ProcessMonitor, MonitorSnapshot, MonitorRequest};
 /// use leptos::prelude::*;
 /// # fn example() -> impl IntoView {
 /// let snapshot = RwSignal::new(MonitorSnapshot::default());
@@ -369,7 +369,7 @@ mod tests {
             assert_ne!(first.request.get_untracked(), old);
         });
     }
-    #[cfg(feature = "ssr")]
+    #[cfg(feature = "editor-ssr")]
     #[test]
     fn monitor_renders_counts_issue_labels_and_read_only_controls() {
         Owner::new().with(|| {

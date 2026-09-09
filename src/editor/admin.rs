@@ -1,9 +1,9 @@
 //! Auth-agnostic server adapter. Hosts must authorize the scope before calling.
-use crate::*;
-use fluxpro_engine::admin::{
+use crate::admin::{
     ExecutionLogFilter, FluxproAdminService, PageRequest, ProcessDefinitionDetails,
 };
-use fluxpro_engine::models::id_field::IdField;
+use crate::editor::*;
+use crate::models::id_field::IdField;
 use serde::{Serialize, de::DeserializeOwned};
 
 fn project<T: Serialize, U: DeserializeOwned>(value: T) -> anyhow::Result<U> {
@@ -111,7 +111,7 @@ async fn load(
     }
     let page = service
         .list_process_instances(
-            fluxpro_engine::admin::ProcessInstanceFilter {
+            crate::admin::ProcessInstanceFilter {
                 search: Some(request.query.search.clone()),
                 process_definition_uuid: Some(uuid),
                 state: request.query.state.clone(),

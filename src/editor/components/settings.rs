@@ -1,5 +1,5 @@
 use super::{Session, declarations::EditorTab, fields::*};
-use crate::settings::process_settings;
+use crate::editor::settings::process_settings;
 use leptos::prelude::*;
 use serde_json::{Value, json};
 
@@ -243,10 +243,10 @@ fn Branches(field: Field, session: Session, gateway: bool) -> impl IntoView {
     }>"Add condition"</button>}
 }
 
-#[cfg(all(test, feature = "ssr"))]
+#[cfg(all(test, feature = "editor-ssr"))]
 mod render_tests {
     use super::*;
-    use crate::{EditorDocument, document::EditorState};
+    use crate::editor::{EditorDocument, document::EditorState};
 
     #[test]
     fn every_node_variant_renders_structured_fields_without_yaml() {
@@ -292,7 +292,7 @@ mod render_tests {
             let owner = Owner::new();
             let html = owner.with(|| {
                 let document = EditorDocument::from_yaml(include_str!(
-                    "../../../../examples/definitions/approval.yaml"
+                    "../../../examples/definitions/approval.yaml"
                 ))
                 .unwrap();
                 let session = Session {

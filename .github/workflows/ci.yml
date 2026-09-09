@@ -17,11 +17,19 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test -p fluxpro-editor
-      - run: cargo test -p fluxpro-editor --features ssr
-      - run: cargo check -p fluxpro-editor --features csr --target wasm32-unknown-unknown --bins
-      - run: cargo check -p fluxpro-editor --features hydrate --target wasm32-unknown-unknown
-      - run: cargo rustdoc -p fluxpro-editor --features ssr --lib -- -D missing-docs -D rustdoc::broken_intra_doc_links
+      - run: cargo test --no-default-features
+      - name: Keep backend features independent of Leptos
+        run: |
+          cargo tree --no-default-features --features full --edges normal --prefix none > backend-dependencies.txt
+          if grep -E '^(leptos|web-sys|wasm-bindgen|js-sys) ' backend-dependencies.txt; then
+            echo 'Backend features must not enable editor dependencies' >&2
+            exit 1
+          fi
+      - run: cargo test --features editor
+      - run: cargo test --features editor-ssr
+      - run: cargo check --features editor-csr --target wasm32-unknown-unknown --bins
+      - run: cargo check --features editor-hydrate --target wasm32-unknown-unknown
+      - run: cargo rustdoc --features editor-ssr --lib -- -D missing-docs -D rustdoc::broken_intra_doc_links
   check:
     runs-on: ubuntu-latest
     services:
@@ -43,11 +51,16 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all -- --check
-      - run: cargo test --all-features
+      - run: cargo test --features full,migration-repair,editor-ssr
       - name: Check durable PostgreSQL transitions
-        run: cargo test --all-features --test durable_transitions -- --ignored --test-threads=4
+        run: cargo test --features full,migration-repair,editor-ssr --test durable_transitions -- --ignored --test-threads=4
+        env:
+          DATABASE_URL: postgres://fluxpro_test:fluxpro_test@localhost:5432/postgres
+      - name: Check editor administration integration
+        run: cargo test --features full,migration-repair,editor-ssr --test editor_admin -- --ignored
         env:
           DATABASE_URL: postgres://fluxpro_test:fluxpro_test@localhost:5432/postgres
       - name: Check public API documentation
-        run: cargo rustdoc --all-features --lib -- -D missing-docs -D rustdoc::broken_intra_doc_links -D rustdoc::invalid_rust_codeblocks
+        run: cargo rustdoc --features full,migration-repair,editor-ssr --lib -- -D missing-docs -D rustdoc::broken_intra_doc_links -D rustdoc::invalid_rust_codeblocks
       - run: cargo package --allow-dirty
+      - run: cargo package --allow-dirty --features editor-ssr,admin

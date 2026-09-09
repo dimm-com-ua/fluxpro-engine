@@ -1,7 +1,8 @@
-use fluxpro_editor::{BlockKind, EditorDocument, Position};
+#![cfg(feature = "editor")]
+use fluxpro_engine::editor::{BlockKind, EditorDocument, Position};
 use serde_json::json;
 
-const APPROVAL: &str = include_str!("../../../examples/definitions/approval.yaml");
+const APPROVAL: &str = include_str!("../examples/definitions/approval.yaml");
 
 #[test]
 fn exceptional_routes_leave_separate_footer_icons() {
@@ -33,7 +34,7 @@ fn exceptional_routes_leave_separate_footer_icons() {
     ]
     .into_iter()
     .map(|pointer| {
-        fluxpro_editor::Connection {
+        fluxpro_engine::editor::Connection {
             source: "a".into(),
             target: "b".into(),
             label: String::new(),
@@ -94,8 +95,8 @@ fn branch_rows_have_separate_outlets_and_layout_reserves_their_height() {
 fn imports_all_existing_fixtures_and_preserves_runtime_semantics() {
     for yaml in [
         APPROVAL,
-        include_str!("../../../tests/fixtures/tk_online.yaml"),
-        include_str!("../../../tests/fixtures/cash_loan.yaml"),
+        include_str!("../tests/fixtures/tk_online.yaml"),
+        include_str!("../tests/fixtures/cash_loan.yaml"),
     ] {
         let document = EditorDocument::from_yaml(yaml).unwrap();
         document.definition.validate().unwrap();

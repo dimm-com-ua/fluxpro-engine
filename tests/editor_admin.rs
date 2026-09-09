@@ -1,5 +1,6 @@
-#![cfg(all(feature = "admin", not(target_arch = "wasm32")))]
-use fluxpro_editor::*;
+#![cfg(feature = "editor")]
+#![cfg(all(feature = "admin", feature = "runtime", not(target_arch = "wasm32")))]
+use fluxpro_engine::editor::*;
 use fluxpro_engine::{
     admin::{FluxproAdminService, PageRequest, ProcessInstanceFilter},
     db_service::FluxproDbServiceImpl,
@@ -42,7 +43,7 @@ async fn monitor_queries_and_publication_preserve_version_boundaries(pool: PgPoo
         .get_current_process_definition_by_key(doc.definition.key.get_id())
         .await
         .unwrap();
-    let doc = fluxpro_editor::admin::monitor_document(source).unwrap();
+    let doc = fluxpro_engine::editor::admin::monitor_document(source).unwrap();
     let page = admin
         .list_process_instances(ProcessInstanceFilter::default(), PageRequest::default())
         .await
@@ -72,7 +73,8 @@ async fn monitor_queries_and_publication_preserve_version_boundaries(pool: PgPoo
             signal_limit: 350,
         }],
     };
-    let snapshot = fluxpro_editor::admin::load_monitor_snapshot(&admin, request.clone()).await;
+    let snapshot =
+        fluxpro_engine::editor::admin::load_monitor_snapshot(&admin, request.clone()).await;
     assert!(snapshot.error.is_none(), "{:?}", snapshot.error);
     assert_eq!(snapshot.request, request);
     assert_eq!(snapshot.instances.total, 1);
@@ -101,7 +103,7 @@ async fn monitor_queries_and_publication_preserve_version_boundaries(pool: PgPoo
         "unresolved test incident"
     );
     request.query.node_id = Some("finish".into());
-    let empty = fluxpro_editor::admin::load_monitor_snapshot(&admin, request.clone()).await;
+    let empty = fluxpro_engine::editor::admin::load_monitor_snapshot(&admin, request.clone()).await;
     assert_eq!(empty.instances.total, 0);
     assert_eq!(empty.node_counts, snapshot.node_counts);
     let mut changed = doc.clone();
@@ -139,7 +141,7 @@ async fn monitor_queries_and_publication_preserve_version_boundaries(pool: PgPoo
             .process_definition_uuid,
         doc.definition.uuid.unwrap()
     );
-    let reopened = fluxpro_editor::admin::monitor_document(
+    let reopened = fluxpro_engine::editor::admin::monitor_document(
         admin
             .get_current_process_definition_by_key(doc.definition.key.get_id())
             .await
@@ -183,12 +185,14 @@ async fn monitor_queries_and_publication_preserve_version_boundaries(pool: PgPoo
             .is_err(),
         "new process cannot reuse an existing key"
     );
-    let restricted = fluxpro_editor::admin::load_definition_snapshot(&admin, request.clone()).await;
+    let restricted =
+        fluxpro_engine::editor::admin::load_definition_snapshot(&admin, request.clone()).await;
     assert!(restricted.error.is_none());
     assert!(restricted.instances.items.is_empty());
     assert!(restricted.details.is_empty());
     request.scope = MonitorScope::from_document(&reopened);
-    let foreign = fluxpro_editor::admin::load_monitor_snapshot(&admin, request.clone()).await;
+    let foreign =
+        fluxpro_engine::editor::admin::load_monitor_snapshot(&admin, request.clone()).await;
     assert!(foreign.error.is_some());
     assert!(foreign.details.is_empty());
     assert_eq!(foreign.request, request);
@@ -220,7 +224,7 @@ async fn active_node_counts_exclude_completed_but_keep_suspended(pool: PgPool) {
         sqlx::query("insert into fluxpro.process_instance(process_def_uuid,process_id,token,current_node_ref,execution_state) values ($1,$2,$2,(select uuid from fluxpro.process_def_node where process_def_uuid=$1 and node_id=$3),$4)")
             .bind(definition_uuid).bind(name).bind(node).bind(state).execute(&pool).await.unwrap();
     }
-    let document = fluxpro_editor::admin::monitor_document(source).unwrap();
+    let document = fluxpro_engine::editor::admin::monitor_document(source).unwrap();
     let document: EditorDocument =
         serde_json::from_value(serde_json::to_value(document).unwrap()).unwrap();
     let request = MonitorRequest {
@@ -228,7 +232,8 @@ async fn active_node_counts_exclude_completed_but_keep_suspended(pool: PgPool) {
         active_counts_only: true,
         ..Default::default()
     };
-    let snapshot = fluxpro_editor::admin::load_monitor_snapshot(&admin, request.clone()).await;
+    let snapshot =
+        fluxpro_engine::editor::admin::load_monitor_snapshot(&admin, request.clone()).await;
     assert!(snapshot.error.is_none(), "{:?}", snapshot.error);
     assert_eq!(
         snapshot
@@ -258,7 +263,7 @@ async fn active_node_counts_exclude_completed_but_keep_suspended(pool: PgPool) {
     assert_eq!(all.iter().map(|c| c.instance_count).sum::<i64>(), 3);
     let mut filtered = request;
     filtered.query.node_id = Some("start".into());
-    let filtered = fluxpro_editor::admin::load_monitor_snapshot(&admin, filtered).await;
+    let filtered = fluxpro_engine::editor::admin::load_monitor_snapshot(&admin, filtered).await;
     assert_eq!(filtered.instances.total, 1);
     assert_eq!(filtered.node_counts, snapshot.node_counts);
 }
