@@ -5,6 +5,13 @@ use std::collections::{BTreeMap, HashSet, VecDeque};
 
 pub(crate) const NODE_WIDTH: f64 = 224.0;
 pub(crate) const NODE_HEIGHT: f64 = 88.0;
+const BRANCH_ROW_STEP: f64 = 44.0;
+
+pub(crate) fn branch_color(index: usize) -> &'static str {
+    [
+        "#0ea5e9", "#10b981", "#8b5cf6", "#f59e0b", "#ec4899", "#64748b",
+    ][index % 6]
+}
 
 /// Canvas coordinates, independent of scrolling and the viewport.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
@@ -136,17 +143,57 @@ pub struct Connection {
 }
 
 impl Connection {
+    /// Distinct footer outlet (horizontal offset, color, icon) for exceptional routes.
+    pub fn special_outlet(&self) -> Option<(f64, &'static str, &'static str)> {
+        match self.pointer.as_str() {
+            "/on_error/next" => Some((40.0, "#e11d48", "!")),
+            "/on_error/compensate" => Some((72.0, "#a855f7", "↶")),
+            "/timeout/on_timeout" => Some((184.0, "#d97706", "◷")),
+            _ => None,
+        }
+    }
+
     /// Cubic Bézier path from the bottom of a source to the top of a target.
     /// Back edges loop to the side so a cycle remains visible.
     pub fn path(&self, positions: &BTreeMap<String, Position>) -> Option<String> {
+        self.path_with_source(positions, NODE_HEIGHT, None, false)
+    }
+
+    fn path_with_source(
+        &self,
+        positions: &BTreeMap<String, Position>,
+        height: f64,
+        port: Option<Position>,
+        right_facing: bool,
+    ) -> Option<String> {
         let a = positions.get(&self.source)?;
         let b = positions.get(&self.target)?;
         let (x1, y1, x2, y2) = (
-            a.x + NODE_WIDTH / 2.0,
-            a.y + NODE_HEIGHT,
+            port.map_or(a.x + NODE_WIDTH / 2.0, |p| p.x),
+            port.map_or(a.y + height, |p| p.y),
             b.x + NODE_WIDTH / 2.0,
             b.y,
         );
+        if right_facing {
+            // Leave each condition horizontally through its own right-hand port.
+            // Keep a separate side lane for backward edges and self-loops.
+            let side = x1.max(b.x + NODE_WIDTH) + 48.0;
+            return Some(if y2 > y1 + 32.0 {
+                format!(
+                    "M {x1} {y1} C {} {y1} {x2} {} {x2} {y2}",
+                    x1 + 64.0,
+                    y2 - 40.0
+                )
+            } else {
+                format!(
+                    "M {x1} {y1} C {side} {y1} {side} {y1} {side} {} L {side} {} C {side} {} {x2} {} {x2} {y2}",
+                    y1 - 24.0,
+                    y2 - 40.0,
+                    y2 - 64.0,
+                    y2 - 48.0
+                )
+            });
+        }
         if y2 > y1 {
             let bend = ((y2 - y1) / 2.0).max(32.0);
             Some(format!(
@@ -173,9 +220,46 @@ impl Connection {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EditorDocument {
     /// Complete typed definition, including declarations and runtime settings.
+    /// Editor transport preserves database identity; exported process YAML does not.
+    #[serde(with = "document_definition")]
     pub definition: ProcessDefinition,
     /// Top-left coordinates indexed by stable node ID.
     pub positions: BTreeMap<String, Position>,
+}
+
+// ProcessDefinition intentionally skips UUID in portable workflow files. The
+// editor/monitor transport also needs that identity to request the exact version.
+mod document_definition {
+    use super::*;
+    use serde::{Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(
+        definition: &ProcessDefinition,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        let mut value = serde_json::to_value(definition).map_err(serde::ser::Error::custom)?;
+        if let Some(uuid) = definition.uuid {
+            value["uuid"] = Value::String(uuid.to_string());
+        }
+        value.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<ProcessDefinition, D::Error> {
+        let value = Value::deserialize(deserializer)?;
+        let uuid = value
+            .get("uuid")
+            .cloned()
+            .map(serde_json::from_value)
+            .transpose()
+            .map_err(serde::de::Error::custom)?
+            .flatten();
+        let mut definition: ProcessDefinition =
+            serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+        definition.uuid = uuid;
+        Ok(definition)
+    }
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -311,6 +395,82 @@ impl EditorDocument {
         edges
     }
 
+    /// Ordered condition rows followed by the fallback route, when this node branches.
+    pub fn branch_routes(&self, id: &str) -> Vec<Connection> {
+        let edges: Vec<_> = self
+            .connections()
+            .into_iter()
+            .filter(|e| e.source == id)
+            .collect();
+        let mut branches: Vec<_> = edges
+            .iter()
+            .filter(|e| e.pointer.contains("/branches/"))
+            .cloned()
+            .collect();
+        if !branches.is_empty() {
+            branches.extend(
+                edges
+                    .into_iter()
+                    .filter(|e| matches!(e.pointer.as_str(), "/next" | "/next/default")),
+            );
+        }
+        branches
+    }
+
+    /// Timeout, error and compensation routes shown as separate footer icons.
+    pub fn special_routes(&self, id: &str) -> Vec<Connection> {
+        self.connections()
+            .into_iter()
+            .filter(|edge| edge.source == id && edge.special_outlet().is_some())
+            .collect()
+    }
+
+    /// Rendered card height, including the visible condition rows.
+    pub fn node_height(&self, id: &str) -> f64 {
+        let count = self.branch_routes(id).len();
+        NODE_HEIGHT
+            + if count == 0 {
+                0.0
+            } else {
+                count as f64 * BRANCH_ROW_STEP + 8.0
+            }
+    }
+
+    /// Exact condition-row outlet in canvas coordinates and its matching edge color.
+    pub fn branch_port(&self, edge: &Connection) -> Option<(Position, &'static str)> {
+        let index = self
+            .branch_routes(&edge.source)
+            .iter()
+            .position(|r| r.pointer == edge.pointer)?;
+        let source = self.positions.get(&edge.source)?;
+        Some((
+            Position::new(
+                source.x + NODE_WIDTH,
+                source.y + NODE_HEIGHT + 20.0 + index as f64 * BRANCH_ROW_STEP,
+            ),
+            branch_color(index),
+        ))
+    }
+
+    /// Connection geometry shared by the editor and monitor, including branch outlets.
+    pub fn connection_path(&self, edge: &Connection) -> Option<String> {
+        let branch = self.branch_port(edge);
+        let port = branch.map(|(p, _)| p).or_else(|| {
+            let (x, _, _) = edge.special_outlet()?;
+            let source = self.positions.get(&edge.source)?;
+            Some(Position::new(
+                source.x + x,
+                source.y + self.node_height(&edge.source),
+            ))
+        });
+        edge.path_with_source(
+            &self.positions,
+            self.node_height(&edge.source),
+            port,
+            branch.is_some(),
+        )
+    }
+
     /// Arranges reachable nodes in breadth-first layers, keeps cycles finite,
     /// places disconnected nodes after them, and aligns every End at the bottom.
     pub fn auto_layout(&mut self) {
@@ -353,28 +513,29 @@ impl EditorDocument {
         }
         let columns = rows.values().map(Vec::len).max().unwrap_or(1);
         self.positions.clear();
-        for (row, nodes) in rows {
+        let mut y = 64.0;
+        for (_, nodes) in rows {
             let offset = (columns - nodes.len()) as f64 * 144.0;
+            let height = nodes
+                .iter()
+                .map(|id| self.node_height(id))
+                .fold(NODE_HEIGHT, f64::max);
             for (column, id) in nodes.into_iter().enumerate() {
-                self.positions.insert(
-                    id,
-                    Position::new(
-                        80.0 + offset + column as f64 * 288.0,
-                        64.0 + row as f64 * 184.0,
-                    ),
-                );
+                self.positions
+                    .insert(id, Position::new(80.0 + offset + column as f64 * 288.0, y));
             }
+            y += height + 96.0;
         }
     }
 
     /// Canvas bounds that grow with manually positioned nodes.
     pub fn canvas_size(&self) -> (f64, f64) {
         self.positions
-            .values()
-            .fold((1000.0_f64, 900.0_f64), |(w, h), p| {
+            .iter()
+            .fold((1000.0_f64, 900.0_f64), |(w, h), (id, p)| {
                 (
                     w.max(p.x + NODE_WIDTH + 220.0),
-                    h.max(p.y + NODE_HEIGHT + 200.0),
+                    h.max(p.y + self.node_height(id) + 200.0),
                 )
             })
     }

@@ -38,6 +38,9 @@ Every callback receives `MonitorRequest`:
   UUID from `document.definition.uuid`. Use UUID when available. If it is absent,
   resolve the **exact key/version** on the server, never the latest version.
 - `revision`: request identity. Echo it unchanged; late responses are ignored.
+- `active_counts_only`: set by the optional component prop of the same name.
+  When true, graph counts exclude completed instances; suspended instances still
+  count as active. The default is false, including for older serialized requests.
 - `query`: search string, exact node/state filters, offset and page size (25).
   Search covers application business key (`process_id`), runtime `token`, process
   key and UUID. Apply filters **before** counting and paginating.
@@ -52,7 +55,10 @@ version-wide `node_counts`, the filtered instance page, and requested details.
 Supply a count entry for **every** definition node, including zero counts.
 Missing node counts render as unknown (`—`), not zero. Node counts are independent
 of search, page and state filters. They count instances currently assigned to the
-node, including persisted completed instances at terminal blocks.
+node, including persisted completed instances at terminal blocks unless
+`active_counts_only=true`. This option does not change the instance-list filters.
+Nodes with a positive count receive a green highlight; zero and unknown counts
+remain neutral. Error borders and selected-instance outlines stay distinguishable.
 
 Each detail contains the instance summary, current node, current context, scoped
 variables, stage history with historical context snapshots, execution logs and
@@ -133,6 +139,8 @@ method after checking the appropriate permission, never by trusting client UI.
 The adapter requires a persisted definition UUID and verifies key/version, filters
 before pagination, loads history in chunks up to 250, echoes errors and scopes,
 and maps unresolved incidents. History prefixes are bounded at 10000 entries.
+`EditorDocument` serialization preserves that UUID across host transport; portable
+process YAML exported by `to_project_yaml` continues to omit database identity.
 
 `escalation_counts_available` is false when support counts are unavailable; the
 health bar then labels those counts unknown. A host that enriches the snapshot

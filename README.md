@@ -93,6 +93,13 @@ async fn migrate(pool: &sqlx::PgPool) -> Result<(), sqlx::migrate::MigrateError>
 }
 ```
 
+For legacy databases blocked by duplicate version identities in migration 7,
+enable `migration-repair` and use
+`migrations::legacy_versions::{plan_legacy_versions, apply_legacy_version_plan}`.
+This opt-in preview/apply API preserves definition UUIDs and instance bindings;
+ordinary migrations never choose an ambiguous identity automatically.
+See [the repair procedure](docs/legacy-version-repair.md) before upgrading.
+
 The engine always uses explicitly qualified table names and does not modify or
 depend on the connection's `search_path`.
 

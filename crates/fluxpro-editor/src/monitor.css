@@ -22,6 +22,9 @@
 .fluxpro-monitor .fm-node-title {min-width:0;display:flex;flex-direction:column;gap:3px;}.fluxpro-monitor .fm-node-title strong {font-size:12px;}.fluxpro-monitor .fm-node-title small {font-size:10px;color:#8996a8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:132px;}
 .fluxpro-monitor .fm-node-icon {font-size:19px;color:#6880aa;}.fluxpro-monitor .fm-node-count {margin-left:auto;align-self:flex-start;border-radius:6px;background:#edf3ff;color:#315dcb;padding:2px 6px;font-size:12px;font-weight:700;}
 .fluxpro-monitor .fm-node-alerts {position:absolute;bottom:7px;left:14px;display:flex;gap:9px;font-size:9px;}
+.fluxpro-monitor .fm-node-branched {align-items:flex-start;padding-top:22px;}
+.fluxpro-monitor .fm-node-branched .fm-node-alerts {top:65px;bottom:auto;}
+.fluxpro-monitor .fm-node-occupied {border-color:#6ebfa7;background:#effbf7;}
 .fluxpro-monitor .fm-node-error {border-color:#e3949a;}.fluxpro-monitor .fm-node-escalation {box-shadow:inset 0 -3px #e9b24a;}.fluxpro-monitor .fm-node-current {outline:3px solid #5785eb;outline-offset:4px;}
 .fluxpro-monitor .fm-issue {display:inline-block;border-radius:4px;padding:3px 5px;font-size:9px;margin:2px 0;white-space:nowrap;}.fluxpro-monitor .fm-issue-error {color:#ba354d;background:#fff0f2;}.fluxpro-monitor .fm-issue-escalation {color:#a36a0a;background:#fff7df;}
 .fluxpro-monitor .fm-legend {display:flex;align-items:center;gap:5px;font-size:9px;color:#7d8b9f;background:#ffffffdd;padding:7px;border-radius:6px;}.fluxpro-monitor .fm-legend i {display:block;width:6px;height:6px;border-radius:50%;margin-left:3px;}.fluxpro-monitor .fm-legend-current {background:#5785eb;}.fluxpro-monitor .fm-legend-error {background:#d85a6c;}.fluxpro-monitor .fm-legend-escalation {background:#e9b24a;}
@@ -37,6 +40,8 @@
 
 :is(.dark,[data-theme="dark"]) .fluxpro-monitor :is(.fm-state,.fm-node-count,.fm-legend,.fm-active) {background:var(--fp-soft)!important;color:#a8c4ff!important;}
 :is(.dark,[data-theme="dark"]) .fluxpro-monitor :is(.fm-inspection,.fm-node,.fm-tabs,.fm-instance-tab,.fm-table th,.fm-table td,.fm-detail-nav,.fm-health) {border-color:var(--fp-line);}
+:is(.dark,[data-theme="dark"]) .fluxpro-monitor .fm-node-occupied {border-color:#408d79;background:#132e2a;}
+:is(.dark,[data-theme="dark"]) .fluxpro-monitor .fm-node-error {border-color:#b76a78;}
 :is(.dark,[data-theme="dark"]) .fluxpro-monitor .fm-error {background:#451d2b;color:#fda4af;}
 :is(.dark,[data-theme="dark"]) .fluxpro-monitor .fm-incident {background:#302719;border-color:#725a2c;}
 :is(.dark,[data-theme="dark"]) .fluxpro-monitor .fm-incident-error {background:#351d2b;border-color:#723646;}

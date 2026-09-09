@@ -1336,6 +1336,80 @@ async fn concurrent_registration_is_unique_and_publication_is_immutable(pool: Pg
     }
 }
 
+#[cfg(feature = "api")]
+#[sqlx::test(migrations = false)]
+#[ignore = "requires PostgreSQL DATABASE_URL; CI runs this suite explicitly"]
+async fn http_create_active_definition_persists_declarations_before_publication(pool: PgPool) {
+    use actix_web::{App, http::StatusCode, test, web};
+    use fluxpro_engine::engine::fluxpro_engine::FluxProEngine;
+    use fluxpro_engine::models::process_def::escalation_def::EscalationDef;
+
+    fluxpro_engine::migrations::migrate(&pool).await.unwrap();
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(Arc::new(FluxProEngine::create(
+                pool.clone(),
+            ))))
+            .configure(fluxpro_engine::api_handlers::config::config),
+    )
+    .await;
+    let mut definition = definition(false);
+    definition.escalations.push(EscalationDef {
+        topic: id("review"),
+        actions: vec![],
+    });
+    let source = serde_yaml::to_string(&definition).unwrap();
+    let response = test::call_service(
+        &app,
+        test::TestRequest::put()
+            .uri("/fluxpro/process_definitions/create")
+            .insert_header(("content-type", "text/yaml"))
+            .set_payload(source.clone())
+            .to_request(),
+    )
+    .await;
+    let status = response.status();
+    let body: serde_json::Value = test::read_body_json(response).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["status"], "Success");
+    let uuid = Uuid::parse_str(body["process_id"]["id"].as_str().unwrap()).unwrap();
+    let (status, stored_source, compiled): (String, String, serde_json::Value) = sqlx::query_as(
+        "select status, source_definition, definition from fluxpro.process_definition where uuid=$1",
+    )
+    .bind(uuid)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(status.to_lowercase(), "active");
+    assert_eq!(stored_source, source);
+    assert_eq!(compiled["status"], "active");
+    for (table, expected) in [
+        ("process_def_node", definition.nodes.len()),
+        ("process_stage", definition.stages.len()),
+        ("process_def_signal", definition.signals.len()),
+        ("process_def_escalations", definition.escalations.len()),
+    ] {
+        let count: i64 = sqlx::query_scalar(&format!(
+            "select count(*) from fluxpro.{table} where process_def_uuid=$1"
+        ))
+        .bind(uuid)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(count as usize, expected, "{table}");
+        assert!(
+            sqlx::query(&format!(
+                "delete from fluxpro.{table} where process_def_uuid=$1"
+            ))
+            .bind(uuid)
+            .execute(&pool)
+            .await
+            .is_err(),
+            "published {table} must remain immutable"
+        );
+    }
+}
+
 fn identified_signal(event: &str, name: &str) -> PostSignal {
     PostSignal {
         event_id: Some(event.into()),

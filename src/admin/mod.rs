@@ -478,6 +478,16 @@ impl FluxproAdminService {
         &self,
         process_definition_uuid: Uuid,
     ) -> AdminResult<Vec<ProcessNodeInstanceCount>> {
+        self.get_process_node_instance_counts_filtered(process_definition_uuid, false).await
+    }
+
+    /// Version-wide node counts, optionally excluding completed instances.
+    /// Suspended instances remain active and retain their incident counts.
+    pub async fn get_process_node_instance_counts_filtered(
+        &self,
+        process_definition_uuid: Uuid,
+        active_only: bool,
+    ) -> AdminResult<Vec<ProcessNodeInstanceCount>> {
         Ok(sqlx::query_as(
             r#"select n.node_id, count(i.uuid)::bigint as instance_count,
                       count(i.uuid) filter (where exists (
@@ -487,11 +497,14 @@ impl FluxproAdminService {
                       ))::bigint as error_count
                from fluxpro.process_def_node n
                left join fluxpro.process_instance i on i.current_node_ref = n.uuid
+                 and (not $2 or i.execution_state = 'suspended'
+                      or lower(coalesce(n.definition->>'type', '')) <> 'end')
                where n.process_def_uuid = $1
                group by n.uuid, n.node_id
                order by n.node_id"#,
         )
         .bind(process_definition_uuid)
+        .bind(active_only)
         .fetch_all(&self.pool)
         .await?)
     }

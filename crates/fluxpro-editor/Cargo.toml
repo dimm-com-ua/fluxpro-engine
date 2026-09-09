@@ -39,6 +39,7 @@ path = "demo/main.rs"
 required-features = ["csr"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+serde_qs = "0.15"
 fluxpro-engine = { path = "../..", features = ["runtime"] }
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "uuid"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

@@ -78,8 +78,9 @@ impl MonitorSession {
             let errors=snapshot.node_counts.iter().map(|n|n.errors).sum::<u64>();
             let escalated=snapshot.node_counts.iter().map(|n|n.escalations).sum::<u64>();
             let escalated = if snapshot.escalation_counts_available { escalated.to_string() } else { "unknown".into() };
-            if complete { format!("{total} assigned · {errors} errors · {escalated} escalated") }
-            else { format!("Partial counts · {total} assigned reported · {errors} errors · {escalated} escalated") }
+            let kind = if self.request.with(|r|r.active_counts_only) { "active" } else { "assigned" };
+            if complete { format!("{total} {kind} · {errors} errors · {escalated} escalated") }
+            else { format!("Partial counts · {total} {kind} reported · {errors} errors · {escalated} escalated") }
         })
     }
     fn pending(self) -> bool {
@@ -112,6 +113,9 @@ impl MonitorSession {
 /// ```
 #[component]
 pub fn ProcessMonitor(
+    /// Exclude completed instances from graph counts (list filters remain independent).
+    #[prop(default = false)]
+    active_counts_only: bool,
     /// Reactive definition and saved layout. A version change resets open tabs.
     #[prop(into)]
     document: Signal<EditorDocument>,
@@ -134,11 +138,12 @@ pub fn ProcessMonitor(
     instance_actions: Option<Callback<Signal<Option<MonitorInstanceDetails>>, AnyView>>,
 ) -> impl IntoView {
     view! {<section class="fluxpro-editor fluxpro-monitor" aria-label="FluxPro process monitor"><style>{EDITOR_CSS}</style><style>{include_str!("monitor.css")}</style>
-        <For each=move ||vec![MonitorScope::from_document(&document.get())] key=|scope|scope.clone() children=move |scope|view!{<MonitorBody document=document snapshot=snapshot on_request=on_request scope=scope refresh_interval_ms=refresh_interval_ms open_instance=open_instance instance_actions=instance_actions show_instances=show_instances/>}/>
+        <For each=move ||vec![MonitorScope::from_document(&document.get())] key=|scope|scope.clone() children=move |scope|view!{<MonitorBody document=document snapshot=snapshot on_request=on_request scope=scope refresh_interval_ms=refresh_interval_ms open_instance=open_instance instance_actions=instance_actions show_instances=show_instances active_counts_only=active_counts_only/>}/>
     </section>}
 }
 #[component]
 fn MonitorBody(
+    active_counts_only: bool,
     document: Signal<EditorDocument>,
     snapshot: Signal<MonitorSnapshot>,
     on_request: Callback<MonitorRequest>,
@@ -151,6 +156,7 @@ fn MonitorBody(
     let session = MonitorSession {
         document,
         request: RwSignal::new(MonitorRequest {
+            active_counts_only,
             scope,
             revision: next_revision(),
             ..Default::default()
@@ -393,6 +399,14 @@ mod tests {
             assert!(!html.contains("draggable=\"true\""));
             assert!(!html.contains("Add block"));
             assert!(!html.contains("collect::"));
+            // Only populated nodes are highlighted; unknown and zero counts are neutral.
+            assert_eq!(html.matches("fm-node-occupied").count(), 1);
+            s.accepted.update(|snapshot| {
+                snapshot.as_mut().unwrap().node_counts[0].instance_count = 0;
+            });
+            let empty = view! {<MonitorCanvas session=s/>}.to_html();
+            assert!(empty.contains("start: 0 instances"));
+            assert!(!empty.contains("fm-node-occupied"));
         });
     }
 }

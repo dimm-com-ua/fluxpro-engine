@@ -4,6 +4,93 @@ use serde_json::json;
 const APPROVAL: &str = include_str!("../../../examples/definitions/approval.yaml");
 
 #[test]
+fn exceptional_routes_leave_separate_footer_icons() {
+    let document = EditorDocument::from_yaml(APPROVAL).unwrap();
+    let mut checked = 0;
+    for edge in document.connections() {
+        if let Some((offset, _, _)) = edge.special_outlet() {
+            let source = document.positions[&edge.source];
+            let x = source.x + offset;
+            let y = source.y + document.node_height(&edge.source);
+            assert_ne!(
+                offset, 112.0,
+                "exceptional routes must not use the ordinary +"
+            );
+            assert!(
+                document
+                    .connection_path(&edge)
+                    .unwrap()
+                    .starts_with(&format!("M {x} {y} C"))
+            );
+            checked += 1;
+        }
+    }
+    assert!(checked >= 1);
+    let outlets: Vec<_> = [
+        "/on_error/next",
+        "/on_error/compensate",
+        "/timeout/on_timeout",
+    ]
+    .into_iter()
+    .map(|pointer| {
+        fluxpro_editor::Connection {
+            source: "a".into(),
+            target: "b".into(),
+            label: String::new(),
+            pointer: pointer.into(),
+        }
+        .special_outlet()
+        .unwrap()
+        .0 as u32
+    })
+    .collect();
+    assert_eq!(
+        outlets
+            .iter()
+            .collect::<std::collections::HashSet<_>>()
+            .len(),
+        3
+    );
+}
+
+#[test]
+fn branch_rows_have_separate_outlets_and_layout_reserves_their_height() {
+    let mut document = EditorDocument::from_yaml(APPROVAL).unwrap();
+    document
+        .connect("decision", "prepare", Some("ctx.retry"))
+        .unwrap();
+    document
+        .connect("decision", "decision", Some("ctx.again"))
+        .unwrap();
+    document.auto_layout();
+    let branches = document.branch_routes("decision");
+    assert_eq!(branches.len(), 4);
+    assert_eq!(branches.last().unwrap().label, "Otherwise");
+    let source = document.positions["decision"];
+    let definition_before = serde_json::to_value(&document.definition).unwrap();
+    for (i, edge) in branches.iter().enumerate() {
+        let (port, _) = document.branch_port(edge).unwrap();
+        assert_eq!(port.x, source.x + 224.0);
+        assert_eq!(port.y, source.y + 108.0 + i as f64 * 44.0);
+        let path = document.connection_path(edge).unwrap();
+        assert!(path.starts_with(&format!("M {} {} C", port.x, port.y)));
+        assert!(!path.contains("NaN"));
+        assert!(port.y < source.y + document.node_height("decision"));
+    }
+    assert_eq!(document.node_height("start"), 88.0);
+    for node in &document.definition.nodes {
+        let position = document.positions[node.id().get_id()];
+        if position.y > source.y {
+            assert!(position.y >= source.y + document.node_height("decision") + 96.0);
+        }
+    }
+    assert_eq!(
+        definition_before,
+        serde_json::to_value(&document.definition).unwrap()
+    );
+}
+
+#[test]
 fn imports_all_existing_fixtures_and_preserves_runtime_semantics() {
     for yaml in [
         APPROVAL,

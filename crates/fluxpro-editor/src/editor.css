@@ -360,7 +360,7 @@
 }
 
 .fluxpro-editor .fp-arrow {
-    fill:#a1b3cc;
+    fill:var(--fp-edge-color,#a1b3cc);
     stroke:none;
 }
 
@@ -388,7 +388,7 @@
 
 .fluxpro-editor .fp-node-body {
     width:100%;
-    height:100%;
+    height:86px;
     border:0;
     border-radius:12px;
     justify-content:flex-start;
@@ -398,6 +398,12 @@
     touch-action:none;
     user-select:none;
 }
+
+.fluxpro-editor .fp-branch-rows {position:absolute;top:87px;left:12px;right:12px;display:flex;flex-direction:column;gap:4px;}
+.fluxpro-editor .fp-branch-row {position:relative;display:flex;align-items:center;height:40px;min-height:40px;padding:4px 14px 4px 8px;border:1px solid var(--fp-line);border-left:3px solid var(--fp-branch-color);border-radius:6px;background:var(--fp-canvas);text-align:left;}
+.fluxpro-editor .fp-branch-condition {display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;overflow-wrap:anywhere;font:10px/14px ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--fp-ink);}
+.fluxpro-editor .fp-branch-outlet {position:absolute;right:-19px;top:50%;transform:translateY(-50%);width:12px;height:12px;border:2px solid var(--fp-surface);border-radius:50%;background:var(--fp-branch-color);box-shadow:0 0 0 1px var(--fp-line);}
+.fluxpro-editor .fp-special-outlet {position:absolute;bottom:-10px;z-index:2;display:grid;place-items:center;width:20px;height:20px;border:1.5px solid var(--fp-route-color);border-radius:50%;background:var(--fp-surface);color:var(--fp-route-color);font:700 14px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;box-shadow:0 0 0 3px var(--fp-surface);cursor:help;}
 
 .fluxpro-editor .fp-node-body:hover {
     background:#fcfdff;

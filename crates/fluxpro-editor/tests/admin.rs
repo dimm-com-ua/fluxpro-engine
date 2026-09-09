@@ -59,6 +59,7 @@ async fn monitor_queries_and_publication_preserve_version_boundaries(pool: PgPoo
     let mut request = MonitorRequest {
         scope: MonitorScope::from_document(&doc),
         revision: 5,
+        active_counts_only: false,
         query: MonitorQuery {
             search: instance.uuid.to_string(),
             node_id: Some("start".into()),
@@ -191,4 +192,73 @@ async fn monitor_queries_and_publication_preserve_version_boundaries(pool: PgPoo
     assert!(foreign.error.is_some());
     assert!(foreign.details.is_empty());
     assert_eq!(foreign.request, request);
+}
+
+#[sqlx::test(migrations = false)]
+#[ignore = "requires a temporary PostgreSQL DATABASE_URL"]
+async fn active_node_counts_exclude_completed_but_keep_suspended(pool: PgPool) {
+    fluxpro_engine::migrations::migrate(&pool).await.unwrap();
+    let service = FluxproServiceImpl::new(Arc::new(FluxproDbServiceImpl::new(pool.clone())));
+    let admin = FluxproAdminService::new(pool.clone());
+    let document = EditorDocument::default()
+        .prepare_publication(None, "1.0.0")
+        .unwrap();
+    service
+        .create_process_def(&document.definition)
+        .await
+        .unwrap();
+    let source = admin
+        .get_current_process_definition_by_key("new_process")
+        .await
+        .unwrap();
+    let definition_uuid = source.uuid;
+    for (name, node, state) in [
+        ("working", "start", "running"),
+        ("done", "finish", "running"),
+        ("incident", "finish", "suspended"),
+    ] {
+        sqlx::query("insert into fluxpro.process_instance(process_def_uuid,process_id,token,current_node_ref,execution_state) values ($1,$2,$2,(select uuid from fluxpro.process_def_node where process_def_uuid=$1 and node_id=$3),$4)")
+            .bind(definition_uuid).bind(name).bind(node).bind(state).execute(&pool).await.unwrap();
+    }
+    let document = fluxpro_editor::admin::monitor_document(source).unwrap();
+    let document: EditorDocument =
+        serde_json::from_value(serde_json::to_value(document).unwrap()).unwrap();
+    let request = MonitorRequest {
+        scope: MonitorScope::from_document(&document),
+        active_counts_only: true,
+        ..Default::default()
+    };
+    let snapshot = fluxpro_editor::admin::load_monitor_snapshot(&admin, request.clone()).await;
+    assert!(snapshot.error.is_none(), "{:?}", snapshot.error);
+    assert_eq!(
+        snapshot
+            .node_counts
+            .iter()
+            .map(|c| c.instance_count)
+            .sum::<u64>(),
+        2
+    );
+    assert_eq!(
+        snapshot
+            .node_counts
+            .iter()
+            .find(|c| c.node_id == "finish")
+            .unwrap()
+            .instance_count,
+        1
+    );
+    assert_eq!(
+        snapshot.instances.total, 3,
+        "list history is independently filterable"
+    );
+    let all = admin
+        .get_process_node_instance_counts(definition_uuid)
+        .await
+        .unwrap();
+    assert_eq!(all.iter().map(|c| c.instance_count).sum::<i64>(), 3);
+    let mut filtered = request;
+    filtered.query.node_id = Some("start".into());
+    let filtered = fluxpro_editor::admin::load_monitor_snapshot(&admin, filtered).await;
+    assert_eq!(filtered.instances.total, 1);
+    assert_eq!(filtered.node_counts, snapshot.node_counts);
 }

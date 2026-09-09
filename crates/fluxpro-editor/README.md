@@ -78,6 +78,11 @@ Multiple editor instances have independent selection, history, and documents.
 - Use the bottom `+` port and then click a destination block or its upper port.
   This sets the default route. Use Properties to add ordered conditional routes.
   Existing conditions are preserved when replacing the default path.
+  Conditional routes appear as rows inside the card, followed by Otherwise;
+  each arrow leaves its own colored row outlet. Timeout, error and compensation
+  routes leave separate clock, warning and return outlets in the card footer.
+  Both editor and monitor share this geometry. Arrange accounts for taller cards;
+  saved manual coordinates remain unchanged until you arrange or move blocks.
 - Smooth SVG Bézier arrows follow blocks as they move. Conditions, timeouts,
   errors, compensation, and backward/cyclic routes are displayed.
 - Configure every node through structured Properties: handler, typed arguments,

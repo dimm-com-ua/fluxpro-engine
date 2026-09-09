@@ -10,6 +10,38 @@ use leptos::{ev, html, prelude::*};
 use settings::{ProcessInspector, ProcessSettings};
 use wasm_bindgen::JsCast;
 
+/// The same condition rows and outlet colors are used by both canvas renderers.
+#[component]
+pub(crate) fn BranchRows(#[prop(into)] routes: Signal<Vec<crate::Connection>>) -> impl IntoView {
+    view! {
+        <span class="fp-branch-rows">
+            {move || routes.get().into_iter().enumerate().map(|(index, edge)| view! {
+                <span class="fp-branch-row" style=format!("--fp-branch-color:{}", crate::document::branch_color(index))
+                    title=format!("{} → {}", edge.label, edge.target)>
+                    <span class="fp-branch-condition">{edge.label.clone()}</span>
+                    <span class="fp-branch-outlet" aria-hidden="true"></span>
+                </span>
+            }).collect_view()}
+        </span>
+    }
+}
+
+#[component]
+pub(crate) fn SpecialRoutePorts(
+    #[prop(into)] routes: Signal<Vec<crate::Connection>>,
+) -> impl IntoView {
+    view! {
+        {move || routes.get().into_iter().filter_map(|edge| {
+            let (x, color, icon) = edge.special_outlet()?;
+            Some(view! {
+                <span class="fp-special-outlet" style=format!("left:{}px;--fp-route-color:{color}", x - 10.0)
+                    role="img" aria-label=format!("{} → {}", edge.label, edge.target)
+                    title=format!("{} → {}", edge.label, edge.target)>{icon}</span>
+            })
+        }).collect_view()}
+    }
+}
+
 #[derive(Clone)]
 struct Drag {
     id: Option<String>,
@@ -518,7 +550,9 @@ fn ProcessCanvas(session: Session) -> impl IntoView {
                     <svg class="fp-connections" aria-label="Process connections" width=move || session.state.with(|s| s.document.canvas_size().0) height=move || session.state.with(|s| s.document.canvas_size().1)>
                         {move || edges.get().into_iter().filter_map(|edge| {
                             session.state.with(|s| {
-                                let path = edge.path(&s.document.positions)?;
+                                let path = s.document.connection_path(&edge)?;
+                                let branch = s.document.branch_port(&edge);
+                                let color = branch.map(|(_, color)|color).or_else(||edge.special_outlet().map(|(_,color,_)|color));
                                 let target = s.document.positions.get(&edge.target)?;
                                 let tip_x = target.x + 112.0;
                                 let tip_y = target.y;
@@ -526,11 +560,11 @@ fn ProcessCanvas(session: Session) -> impl IntoView {
                                 let label_x = (source.x + target.x) / 2.0 + 124.0;
                                 let label_y = (source.y + 88.0 + target.y) / 2.0;
                                 Some(view! {
-                                    <g class="fp-edge" class:fp-edge-special=matches!(edge.label.as_str(), "On error" | "Timeout" | "Compensate")>
+                                    <g class="fp-edge" style=color.map(|color|format!("stroke:{color};--fp-edge-color:{color}")) class:fp-edge-special=edge.special_outlet().is_some()>
                                         <title>{format!("{} → {} {}", edge.source, edge.target, edge.label)}</title>
                                         <path d=path fill="none"/>
                                         <path class="fp-arrow" d=format!("M {} {} L {tip_x} {tip_y} L {} {} Z", tip_x - 4.0, tip_y - 8.0, tip_x + 4.0, tip_y - 8.0)/>
-                                        <text x=label_x y=label_y>{if edge.label.chars().count() > 28 { format!("{}…", edge.label.chars().take(27).collect::<String>()) } else { edge.label.clone() }}</text>
+                                        <text x=label_x y=label_y>{if branch.is_some() { String::new() } else if edge.label.chars().count() > 28 { format!("{}…", edge.label.chars().take(27).collect::<String>()) } else { edge.label.clone() }}</text>
                                     </g>
                                 })
                             })
@@ -539,11 +573,12 @@ fn ProcessCanvas(session: Session) -> impl IntoView {
                     <For each=move || session.state.with(|s| s.document.definition.nodes.iter().map(|n| n.id().to_string()).collect::<Vec<_>>()) key=|id| id.clone() children=move |id| {
                         let id = StoredValue::new(id);
                         let kind = Memo::new(move |_| session.state.with(|s| s.document.node(&id.get_value()).map(BlockKind::of).unwrap_or(BlockKind::End)));
+                        let routes = Signal::derive(move ||session.state.with(|s|s.document.branch_routes(&id.get_value())));
                         view! {
                             <div class="fp-node" data-node-id=id.get_value() data-kind=move || kind.get().name()
                                 class:fp-selected=move || session.selected.get().as_deref() == Some(id.get_value().as_str())
                                 class:fp-connecting=move || session.connecting.get().as_deref() == Some(id.get_value().as_str())
-                                style=move || session.state.with(|s| { let p = s.document.positions.get(&id.get_value()).copied().unwrap_or_default(); format!("transform:translate({}px,{}px)", p.x, p.y) })>
+                                style=move || session.state.with(|s| { let p = s.document.positions.get(&id.get_value()).copied().unwrap_or_default(); format!("transform:translate({}px,{}px);height:{}px", p.x, p.y, s.document.node_height(&id.get_value())) })>
                                 <button type="button" class="fp-node-body" on:pointerdown=move |event| start_drag.run((id.get_value(), event))
                                     on:click=move |_| session.select(id.get_value())
                                     on:keydown=move |event: ev::KeyboardEvent| {
@@ -555,6 +590,8 @@ fn ProcessCanvas(session: Session) -> impl IntoView {
                                     <span class="fp-node-copy"><strong>{move || kind.get().label()}</strong><small>{id.get_value()}</small></span>
                                     <span class="fp-node-menu" aria-hidden="true">"⠿"</span>
                                 </button>
+                                <BranchRows routes/>
+                                <SpecialRoutePorts routes=Signal::derive(move ||session.state.with(|s|s.document.special_routes(&id.get_value())))/>
                                 <Show when=move || kind.get() != BlockKind::Start>
                                     <button type="button" class="fp-port fp-port-in" aria-label=format!("Connect to {}", id.get_value()) title="Connect here" on:click=move |_| session.select(id.get_value())></button>
                                 </Show>

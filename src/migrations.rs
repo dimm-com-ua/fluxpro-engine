@@ -4,6 +4,10 @@ use sqlx::Executor;
 use sqlx::PgPool;
 use sqlx::migrate::{MigrateError, Migrator};
 
+/// Explicit, reviewable repair of legacy version identities before migration 7.
+#[cfg(feature = "migration-repair")]
+pub mod legacy_versions;
+
 /// Embedded database migrations required by Fluxpro.
 pub static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
 

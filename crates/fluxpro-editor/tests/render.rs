@@ -4,6 +4,26 @@ use fluxpro_editor::{EditorDocument, ProcessEditor};
 use leptos::prelude::*;
 
 #[test]
+fn editor_and_monitor_render_the_same_visible_branch_rows() {
+    use fluxpro_editor::{MonitorSnapshot, ProcessMonitor};
+    Owner::new().with(|| {
+        let document = EditorDocument::from_yaml(include_str!("../../../examples/definitions/approval.yaml")).unwrap();
+        let expected: usize = document.definition.nodes.iter().map(|node| document.branch_routes(node.id().get_id()).len()).sum();
+        let special = document.connections().iter().filter(|edge|edge.special_outlet().is_some()).count();
+        assert!(expected >= 2);
+        let editor = view! {<ProcessEditor document=document.clone()/>}.to_html();
+        let monitor = view! {<ProcessMonitor document snapshot=MonitorSnapshot::default() on_request=Callback::new(|_|{})/>}.to_html();
+        for html in [editor, monitor] {
+            assert_eq!(html.matches("class=\"fp-branch-row\"").count(), expected);
+            assert_eq!(html.matches("class=\"fp-branch-outlet\"").count(), expected);
+            assert!(html.contains("Otherwise</span>"));
+            assert!(html.contains("approved"));
+            assert_eq!(html.matches("class=\"fp-special-outlet\"").count(), special);
+        }
+    });
+}
+
+#[test]
 fn single_public_component_renders_without_browser_or_application_context() {
     let owner = Owner::new();
     let html =

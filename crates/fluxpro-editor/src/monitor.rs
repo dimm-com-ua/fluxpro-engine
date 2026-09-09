@@ -93,6 +93,10 @@ pub struct MonitorInstanceRequest {
 /// Complete read request emitted on navigation, search, polling or refresh.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MonitorRequest {
+    /// Count only unfinished (including suspended) instances on the graph.
+    /// Independent of list filters and pagination; false preserves all-instance counts.
+    #[serde(default)]
+    pub active_counts_only: bool,
     /// Exact version whose data may be rendered.
     pub scope: MonitorScope,
     /// Monotonically increasing revision within this mounted scope.
@@ -100,6 +104,8 @@ pub struct MonitorRequest {
     /// Instance-list query. Does not apply to node counts or open details.
     pub query: MonitorQuery,
     /// Details to load for open tabs; closed tabs disappear from future requests.
+    /// Form transports omit empty lists when all detail tabs are closed.
+    #[serde(default)]
     pub instances: Vec<MonitorInstanceRequest>,
 }
 /// A paginated response; history pages use offset zero and a growing prefix.
