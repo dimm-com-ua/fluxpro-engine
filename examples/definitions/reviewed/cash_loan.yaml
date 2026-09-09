@@ -1,0 +1,911 @@
+key: cash_loan
+name: "Кеш-кредит"
+version: "v1.1.26"
+status: active
+effective_from: "2025-01-01T00:00:00Z"
+deprecated_at: "2026-12-31T00:00:00Z"
+
+metadata:
+  owner: "credit-core"
+  sla: "PT30M"
+  comment: "Start the calculator escalation timer only after interaction, while allowing direct calculator submission."
+
+stages:
+  - id: "created"
+    name: "Created new process"
+    is_initial: true
+  - id: "phone_verification"
+    name: "Verification of the phone number"
+  - id: "identification"
+    name: "Identification with Bank ID"
+  - id: "calculator"
+    name: "Calculator"
+  - id: "card_tokenization"
+    name: "Tokenization of the card"
+  - id: "fin_mon"
+    name: "Finmon"
+  - id: "scoring"
+    name: "Scoring"
+  - id: "credit_info"
+    name: "Credit info"
+  - id: "payout"
+    name: "Payout"
+  - id: "signing"
+    name: "Signing of the documents"
+  - id: "done_ok"
+    name: "Credit granted"
+  - id: "rejected"
+    name: "Credit rejected"
+  - id: "archive"
+    name: "Archive"
+    is_final: true
+
+signals:
+  # от клиента/систем
+  - name: "phone_verified"
+  - name: "calculator_interacted"
+  - name: "terms_selected"
+  - name: "bankid_ok"
+  - name: "card_added"
+  - name: "finmon_done"
+  - name: "decision_ready"      # ctx.decision: approve|reject|manual
+  - name: "terms_viewed"
+  - name: "otp_verified"
+  - name: "payout_confirmed"
+  - name: "payout_failed"
+  - name: "phone_failed"
+
+  # от оператора поддержки (payload кладёт решение в ctx.operator.action)
+  - name: "operator_phone_resolution"        # continue|reject
+  - name: "operator_terms_resolution"        # continue|back_to_phone|reject
+  - name: "operator_bankid_resolution"       # continue|back_to_terms|reject
+  - name: "operator_card_resolution"         # continue|back_to_bankid|back_to_terms|reject
+  - name: "operator_finmon_resolution"       # continue|back_to_card|back_to_bankid|back_to_terms|reject
+  - name: "operator_decision_resolution"     # approve|reject|manual|back_to_finmon|back_to_card
+  - name: "operator_final_terms_resolution"  # continue|back_to_decision|reject
+  - name: "operator_otp_resolution"          # continue|back_to_final_terms|reject
+  - name: "operator_payout_resolution"       # continue|back_to_signing|reject
+
+forms:
+  - id: phone_verify
+    roles: [ "client" ]
+  - id: support_resolution_phone
+    roles: [ "manager", "admin" ]
+  - id: calculator
+    roles: [ "client" ]
+  - id: support_resolution_terms
+    roles: [ "manager", "admin" ]
+  - id: identification
+    roles: [ "client" ]
+  - id: support_resolution_bankid
+    roles: [ "manager", "admin" ]
+  - id: bank_card
+    roles: [ "client" ]
+  - id: manual_review_wait
+    roles: [ "manager", "admin" ]
+  - id: support_resolution_card
+    roles: [ "manager", "admin" ]
+  - id: finmon_form
+    roles: [ "client" ]
+  - id: support_resolution_finmon
+    roles: [ "manager", "admin" ]
+  - id: decision_wait
+    roles: [ "client" ]
+  - id: support_resolution_decision
+    roles: [ "manager", "admin" ]
+  - id: credit_info
+    roles: [ "client" ]
+  - id: support_resolution_final_terms
+    roles: [ "manager", "admin" ]
+  - id: signing
+    roles: [ "client" ]
+  - id: support_resolution_otp
+    roles: [ "manager", "admin" ]
+  - id: payout_wait
+    roles: [ "client" ]
+  - id: support_resolution_payout
+    roles: [ "manager", "admin" ]
+  - id: done_form
+    roles: [ "client" ]
+
+special_handlers:
+  on_stage_change:
+    handler: set_stage
+  on_show_form:
+    handler: open_form
+  on_hide_form:
+    handler: close_form
+  on_process_complete:
+    handler: close_all_support_processes
+
+escalations:
+  - topic: phone_escalation
+    actions:
+      - id: reject_process
+        operator_action: reject
+        label: "Відхилити заявку"
+        hint: "Процес буде завершено зі статусом rejected"
+        kind: Dangerous
+        emit_signal: operator_phone_resolution
+
+  - topic: terms_escalation
+    actions:
+      - id: reject_process
+        operator_action: reject
+        label: "Відхилити заявку"
+        hint: "Процес буде завершено зі статусом rejected"
+        kind: Dangerous
+        emit_signal: operator_terms_resolution
+
+  - topic: bankid_escalation
+    actions:
+      - id: back_to_terms
+        operator_action: back_to_terms
+        label: "Повернути на вибір умов"
+        hint: "Процес буде повернено на етап вибору умов"
+        kind: Secondary
+        emit_signal: operator_bankid_resolution
+
+      - id: reject_process
+        operator_action: reject
+        label: "Відхилити заявку"
+        hint: "Процес буде завершено зі статусом rejected"
+        kind: Dangerous
+        emit_signal: operator_bankid_resolution
+
+  - topic: card_escalation
+    actions:
+      - id: back_to_terms
+        operator_action: back_to_terms
+        label: "Повернути на вибір умов"
+        hint: "Процес буде повернено на етап вибору умов"
+        kind: Secondary
+        emit_signal: operator_card_resolution
+
+      - id: back_to_bankid
+        operator_action: back_to_bankid
+        label: "Повернути на BankID"
+        hint: "Процес буде повернено на етап ідентифікації"
+        kind: Secondary
+        emit_signal: operator_card_resolution
+
+      - id: reject_process
+        operator_action: reject
+        label: "Відхилити заявку"
+        hint: "Процес буде завершено зі статусом rejected"
+        kind: Dangerous
+        emit_signal: operator_card_resolution
+
+  - topic: finmon_escalation
+    actions:
+      - id: back_to_terms
+        operator_action: back_to_terms
+        label: "Повернути на вибір умов"
+        hint: "Процес буде повернено на етап вибору умов"
+        kind: Secondary
+        emit_signal: operator_finmon_resolution
+
+      - id: back_to_bankid
+        operator_action: back_to_bankid
+        label: "Повернути на BankID"
+        hint: "Процес буде повернено на етап ідентифікації"
+        kind: Secondary
+        emit_signal: operator_finmon_resolution
+
+      - id: back_to_card
+        operator_action: back_to_card
+        label: "Повернути до карти"
+        hint: "Процес буде повернено на етап додавання карти"
+        kind: Secondary
+        emit_signal: operator_finmon_resolution
+
+      - id: reject_process
+        operator_action: reject
+        label: "Відхилити заявку"
+        hint: "Процес буде завершено зі статусом rejected"
+        kind: Dangerous
+        emit_signal: operator_finmon_resolution
+
+  - topic: decision_escalation
+    actions:
+      - id: approve_process
+        operator_action: approve
+        label: "Схвалити вручну"
+        hint: "Процес буде переведено до фінальних умов"
+        kind: Primary
+        emit_signal: operator_decision_resolution
+
+      - id: manual_review
+        operator_action: manual
+        label: "Ручна перевірка"
+        hint: "Процес буде переведено в ручний режим"
+        kind: Secondary
+        emit_signal: operator_decision_resolution
+
+      - id: back_to_finmon
+        operator_action: back_to_finmon
+        label: "Повернути на фінмон"
+        hint: "Процес буде повернено на етап фінмоніторингу"
+        kind: Secondary
+        emit_signal: operator_decision_resolution
+
+      - id: back_to_card
+        operator_action: back_to_card
+        label: "Повернути до карти"
+        hint: "Процес буде повернено на етап додавання карти"
+        kind: Secondary
+        emit_signal: operator_decision_resolution
+
+      - id: reject_process
+        operator_action: reject
+        label: "Відхилити заявку"
+        hint: "Процес буде завершено зі статусом rejected"
+        kind: Dangerous
+        emit_signal: operator_decision_resolution
+
+  - topic: final_terms_escalation
+    actions:
+      - id: back_to_terms
+        operator_action: back_to_terms
+        label: "Повернути на вибір умов"
+        hint: "Процес буде повернено на етап вибору умов"
+        kind: Secondary
+        emit_signal: operator_final_terms_resolution
+
+      - id: back_to_bankid
+        operator_action: back_to_bankid
+        label: "Повернути на BankID"
+        hint: "Процес буде повернено на етап ідентифікації"
+        kind: Secondary
+        emit_signal: operator_final_terms_resolution
+
+      - id: back_to_card
+        operator_action: back_to_card
+        label: "Повернути до карти"
+        hint: "Процес буде повернено на етап додавання карти"
+        kind: Secondary
+        emit_signal: operator_final_terms_resolution
+
+      - id: reject_process
+        operator_action: reject
+        label: "Відхилити заявку"
+        hint: "Процес буде завершено зі статусом rejected"
+        kind: Dangerous
+        emit_signal: operator_final_terms_resolution
+
+  - topic: otp_escalation
+    actions:
+      - id: back_to_final_terms
+        operator_action: back_to_final_terms
+        label: "Повернути до фінальних умов"
+        hint: "Процес буде повернено до перегляду фінальних умов"
+        kind: Secondary
+        emit_signal: operator_otp_resolution
+
+      - id: back_to_terms
+        operator_action: back_to_terms
+        label: "Повернути на вибір умов"
+        hint: "Процес буде повернено на етап вибору умов"
+        kind: Secondary
+        emit_signal: operator_otp_resolution
+
+      - id: back_to_bankid
+        operator_action: back_to_bankid
+        label: "Повернути на BankID"
+        hint: "Процес буде повернено на етап ідентифікації"
+        kind: Secondary
+        emit_signal: operator_otp_resolution
+
+      - id: back_to_card
+        operator_action: back_to_card
+        label: "Повернути до карти"
+        hint: "Процес буде повернено на етап додавання карти"
+        kind: Secondary
+        emit_signal: operator_otp_resolution
+
+      - id: reject_process
+        operator_action: reject
+        label: "Відхилити заявку"
+        hint: "Процес буде завершено зі статусом rejected"
+        kind: Dangerous
+        emit_signal: operator_otp_resolution
+
+  - topic: payout_escalation
+    actions:
+      - id: back_to_card
+        operator_action: back_to_card
+        label: "Повернути до карти"
+        hint: "Процес буде повернено на етап додавання карти"
+        kind: Secondary
+        emit_signal: operator_payout_resolution
+
+      - id: reject_process
+        operator_action: reject
+        label: "Відхилити заявку"
+        hint: "Процес буде завершено зі статусом rejected"
+        kind: Dangerous
+        emit_signal: operator_payout_resolution
+
+nodes:
+  - id: start
+    type: Start
+    next: init_params
+    set_stage: created
+
+  - id: init_params
+    type: ServiceTask
+    handler: "init_params"
+    next:
+      default: phone_verification
+      branches:
+        - when: "ctx.contains('is_phone_confirmed') && ctx.is_phone_confirmed == true"
+          next: select_terms_open
+
+  # 1) Телефон
+  - id: phone_verification
+    type: UserTask
+    form: "phone_verify"
+    wait_for:
+      signals: [ "phone_verified", "phone_failed" ]
+    timeout: { after: "PT10M", on_timeout: phone_escalation }
+    next: phone_route
+    set_stage: phone_verification
+
+  - id: phone_escalation
+    type: ServiceTask
+    handler: "create_support_ticket"
+    args:
+      topic: { id_field: "phone_escalation" }
+    next: phone_support_wait
+
+  - id: phone_support_wait
+    type: UserTask
+    form: "support_resolution_phone"
+    wait_for:
+      signals: [ "phone_verified", "operator_phone_resolution" ]
+    timeout: { after: "PT2M", on_timeout: finalize_reject }
+    next: phone_route
+
+  - id: phone_route
+    type: Gateway
+    gateway: XOR
+    branches:
+      - when: "ctx['_last_signal'] == 'phone_verified'"
+        next: save_phone_to_order
+      - when: "ctx['_last_signal'] == 'operator_phone_resolution' && ctx.operator_action == 'reject'"
+        next: finalize_reject
+      - when: "ctx['_last_signal'] == 'phone_failed'"
+        next: finalize_reject
+    next: finalize_reject
+
+  - id: save_phone_to_order
+    type: ServiceTask
+    handler: "attach_phone_to_order"
+    next: close_ticket_phone
+
+  - id: close_ticket_phone
+    type: ServiceTask
+    handler: "close_support_ticket"
+    next: select_terms_open
+
+  # 2) Условия
+  # The calculator may remain open indefinitely. The escalation timer starts
+  # only after the client changes the amount or term and emits
+  # `calculator_interacted`.
+  - id: select_terms_open
+    type: UserTask
+    set_stage: calculator
+    form: "calculator"
+    wait_for:
+      signals: [ "calculator_interacted", "terms_selected" ]
+    next: select_terms_open_route
+
+  - id: select_terms_open_route
+    type: Gateway
+    gateway: XOR
+    branches:
+      - when: "ctx['_last_signal'] == 'calculator_interacted'"
+        next: select_terms
+      - when: "ctx['_last_signal'] == 'terms_selected'"
+        next: close_ticket_terms
+    next: finalize_reject
+
+  - id: select_terms
+    type: UserTask
+    set_stage: calculator
+    form: "calculator"
+    wait_for: { signal: "terms_selected" }
+    timeout: { after: "PT1M", on_timeout: terms_escalation }
+    next: terms_route
+
+  - id: terms_escalation
+    type: ServiceTask
+    handler: "create_support_ticket"
+    args:
+      topic: { id_field: "terms_escalation" }
+    next: terms_support_wait
+
+  - id: terms_support_wait
+    type: UserTask
+    form: "support_resolution_terms"
+    wait_for:
+      signals: [ "terms_selected", "operator_terms_resolution" ]
+    timeout: { after: "PT2H", on_timeout: finalize_reject }
+    next: terms_route
+
+  - id: terms_route
+    type: Gateway
+    gateway: XOR
+    branches:
+      - when: "ctx['_last_signal'] == 'terms_selected'"
+        next: close_ticket_terms
+      - when: "ctx['_last_signal'] == 'operator_terms_resolution' && ctx.operator_action == 'reject'"
+        next: finalize_reject
+    next: finalize_reject
+
+  - id: close_ticket_terms
+    type: ServiceTask
+    handler: "close_support_ticket"
+    next: bankid
+
+  # 3) БанкID
+  - id: bankid
+    type: UserTask
+    set_stage: identification
+    form: "identification"
+    wait_for: { signal: "bankid_ok" }
+    timeout: { after: "PT1M", on_timeout: bankid_escalation }
+    next: bankid_route
+
+  - id: bankid_escalation
+    type: ServiceTask
+    handler: "create_support_ticket"
+    args:
+      topic: { id_field: "bankid_escalation" }
+      lifetime: { string: "PT24H" }
+    next: bankid_support_wait
+
+  - id: bankid_support_wait
+    type: UserTask
+    form: "support_resolution_bankid"
+    wait_for:
+      signals: [ "bankid_ok", "operator_bankid_resolution" ]
+    timeout: { after: "PT24H", on_timeout: finalize_reject }
+    next: bankid_route
+
+  - id: bankid_route
+    type: Gateway
+    gateway: XOR
+    branches:
+      - when: "ctx['_last_signal'] == 'bankid_ok'"
+        next: close_ticket_bankid
+      - when: "ctx['_last_signal'] == 'operator_bankid_resolution' && ctx.operator_action == 'back_to_terms'"
+        next: close_ticket_return_to_terms
+      - when: "ctx['_last_signal'] == 'operator_bankid_resolution' && ctx.operator_action == 'reject'"
+        next: finalize_reject
+    next: finalize_reject
+
+  - id: close_ticket_return_to_terms
+    type: ServiceTask
+    handler: "close_support_ticket"
+    next: select_terms
+
+  - id: close_ticket_bankid
+    type: ServiceTask
+    handler: "close_support_ticket"
+    next: add_card
+
+  # 4) Карта
+  - id: add_card
+    type: UserTask
+    form: "bank_card"
+    set_stage: card_tokenization
+    wait_for: { signal: "card_added" }
+    timeout: { after: "PT1M", on_timeout: card_escalation }
+    next: card_route
+
+  - id: card_escalation
+    type: ServiceTask
+    handler: "create_support_ticket"
+    args:
+      topic: { id_field: "card_escalation" }
+      lifetime: { string: "PT24H" }
+    next: card_support_wait
+
+  - id: card_support_wait
+    type: UserTask
+    form: "support_resolution_card"
+    wait_for:
+      signals: [ "card_added", "operator_card_resolution" ]
+    timeout: { after: "PT24H", on_timeout: finalize_reject }
+    next: card_route
+
+  - id: card_route
+    type: Gateway
+    gateway: XOR
+    branches:
+      - when: "ctx['_last_signal'] == 'card_added'"
+        next: close_ticket_card
+      - when: "ctx['_last_signal'] == 'operator_card_resolution' && ctx.operator_action == 'back_to_terms'"
+        next: close_ticket_return_to_terms
+      - when: "ctx['_last_signal'] == 'operator_card_resolution' && ctx.operator_action == 'back_to_bankid'"
+        next: close_ticket_return_to_bankid
+      - when: "ctx['_last_signal'] == 'operator_card_resolution' && ctx.operator_action == 'reject'"
+        next: finalize_reject
+    next: finalize_reject
+
+  - id: close_ticket_return_to_bankid
+    type: ServiceTask
+    handler: "close_support_ticket"
+    next: bankid
+
+  - id: close_ticket_card
+    type: ServiceTask
+    handler: "close_support_ticket"
+    next: is_finmon_required
+
+  # 5) Финмон
+
+  - id: is_finmon_required
+    type: ServiceTask
+    handler: is_finmon_required
+    next:
+      default: finmon_form
+      branches:
+        - when: "ctx.is_finmon_required == false"
+          next: run_scoring
+
+  - id: finmon_form
+    type: UserTask
+    form: "finmon_form"
+    set_stage: fin_mon
+    wait_for: { signal: "finmon_done" }
+    timeout: { after: "PT2M", on_timeout: finmon_escalation }
+    next: finmon_route
+
+  - id: finmon_escalation
+    type: ServiceTask
+    handler: "create_support_ticket"
+    args:
+      topic: { id_field: "finmon_escalation" }
+      lifetime: { string: "PT24H" }
+    next: finmon_support_wait
+
+  - id: finmon_support_wait
+    type: UserTask
+    form: "support_resolution_finmon"
+    wait_for:
+      signals: [ "finmon_done", "operator_finmon_resolution" ]
+    timeout: { after: "PT24H", on_timeout: finalize_reject }
+    next: finmon_route
+
+  - id: finmon_route
+    type: Gateway
+    gateway: XOR
+    branches:
+      - when: "ctx['_last_signal'] == 'finmon_done'"
+        next: close_ticket_finmon
+      - when: "ctx['_last_signal'] == 'operator_finmon_resolution' && ctx.operator_action == 'back_to_card'"
+        next: close_ticket_return_to_card
+      - when: "ctx['_last_signal'] == 'operator_finmon_resolution' && ctx.operator_action == 'back_to_bankid'"
+        next: close_ticket_return_to_bankid
+      - when: "ctx['_last_signal'] == 'operator_finmon_resolution' && ctx.operator_action == 'back_to_terms'"
+        next: close_ticket_return_to_terms
+      - when: "ctx['_last_signal'] == 'operator_finmon_resolution' && ctx.operator_action == 'reject'"
+        next: finalize_reject
+    next: finalize_reject
+
+  - id: close_ticket_return_to_card
+    type: ServiceTask
+    handler: "close_support_ticket"
+    next: add_card
+
+  - id: close_ticket_finmon
+    type: ServiceTask
+    handler: "close_support_ticket"
+    next: run_scoring
+
+  # 6) Ожидание решения (с возможной эскалацией)
+  - id: run_scoring
+    type: ServiceTask
+    handler: "run_scoring_and_decision"
+    retries: { max: 3, backoff: "PT10S" }
+    next: wait_decision
+    set_stage: scoring
+
+  - id: wait_decision
+    type: UserTask
+    form: "decision_wait"
+    wait_for: { signal: "decision_ready" }
+    timeout: { after: "PT2M", on_timeout: decision_escalation }
+    next: decision_route
+
+  - id: decision_escalation
+    type: ServiceTask
+    handler: "create_support_ticket"
+    args:
+      topic: { id_field: "decision_escalation" }
+      lifetime: { string: "PT24H" }
+    next: decision_support_wait
+
+  - id: decision_support_wait
+    type: UserTask
+    form: "support_resolution_decision"
+    wait_for:
+      signals: [ "decision_ready", "operator_decision_resolution" ]
+    timeout: { after: "PT24H", on_timeout: finalize_reject }
+    next: decision_route
+
+  - id: decision_route
+    type: Gateway
+    gateway: XOR
+    branches:
+      - when: "ctx['_last_signal'] == 'decision_ready' && ctx.decision == 'approve'"
+        next: close_ticket_decision_approve
+      - when: "ctx['_last_signal'] == 'decision_ready' && ctx.decision == 'reject'"
+        next: finalize_reject
+      - when: "ctx['_last_signal'] == 'decision_ready' && ctx.decision == 'manual'"
+        next: manual_review_wait
+      - when: "ctx['_last_signal'] == 'operator_decision_resolution' && ctx.operator_action == 'approve'"
+        next: close_ticket_decision_approve
+      - when: "ctx['_last_signal'] == 'operator_decision_resolution' && ctx.operator_action == 'reject'"
+        next: finalize_reject
+      - when: "ctx['_last_signal'] == 'operator_decision_resolution' && ctx.operator_action == 'manual'"
+        next: manual_review_wait
+      - when: "ctx['_last_signal'] == 'operator_decision_resolution' && ctx.operator_action == 'back_to_finmon'"
+        next: close_ticket_return_to_finmon
+      - when: "ctx['_last_signal'] == 'operator_decision_resolution' && ctx.operator_action == 'back_to_card'"
+        next: close_ticket_return_to_card
+    next: finalize_reject
+
+  - id: close_ticket_return_to_finmon
+    type: ServiceTask
+    handler: "close_support_ticket"
+    next: is_finmon_required
+
+  - id: close_ticket_decision_approve
+    type: ServiceTask
+    handler: "close_support_ticket"
+    next: final_terms
+
+  - id: manual_review_wait
+    type: UserTask
+    form: "manual_review_wait"
+    wait_for: { signal: "decision_ready" }
+    timeout: { after: "PT2H", on_timeout: finalize_reject }
+    next: decision_route
+
+  # 7) Финальные условия
+  - id: final_terms
+    type: UserTask
+    form: "credit_info"
+    wait_for: { signal: "terms_viewed" }
+    timeout: { after: "PT1M", on_timeout: send_reminder_on_decision }
+    next: final_terms_route
+    set_stage: credit_info
+
+  - id: send_reminder_on_decision
+    type: ServiceTask
+    handler: "send_link_to_order_handler"
+    args:
+      reason: { string: "reminder_after_decision" }
+    next: final_terms_after_reminder
+
+  - id: final_terms_after_reminder
+    type: Wait
+    wait_for: { signal: "terms_viewed" }
+    timeout: { after: "PT3M", on_timeout: final_terms_escalation }
+    next: final_terms_route
+    set_stage: credit_info
+
+  - id: final_terms_escalation
+    type: ServiceTask
+    handler: "create_support_ticket"
+    args:
+      topic: { id_field: "final_terms_escalation" }
+      lifetime: { string: "PT24H" }
+    next: final_terms_support_wait
+
+  - id: final_terms_support_wait
+    type: UserTask
+    form: "support_resolution_final_terms"
+    wait_for:
+      signals: [ "terms_viewed", "operator_final_terms_resolution" ]
+    timeout: { after: "PT24H", on_timeout: finalize_reject }
+    next: final_terms_route
+
+  - id: final_terms_route
+    type: Gateway
+    gateway: XOR
+    branches:
+      - when: "ctx['_last_signal'] == 'terms_viewed'"
+        next: close_ticket_final_terms
+      - when: "ctx['_last_signal'] == 'operator_final_terms_resolution' && ctx.operator_action == 'back_to_card'"
+        next: close_ticket_return_to_card
+      - when: "ctx['_last_signal'] == 'operator_final_terms_resolution' && ctx.operator_action == 'back_to_bankid'"
+        next: close_ticket_return_to_bankid
+      - when: "ctx['_last_signal'] == 'operator_final_terms_resolution' && ctx.operator_action == 'back_to_terms'"
+        next: close_ticket_return_to_terms
+      - when: "ctx['_last_signal'] == 'operator_final_terms_resolution' && ctx.operator_action == 'reject'"
+        next: finalize_reject
+    next: finalize_reject
+
+  - id: close_ticket_final_terms
+    type: ServiceTask
+    handler: "close_support_ticket"
+    next: sign_otp_send
+
+  # 8) Подписание OTP
+  - id: sign_otp_send
+    type: ServiceTask
+    handler: "sign_otp_send"
+    retries: { max: 3, backoff: "PT5S" }
+    next: sign_otp_wait
+    on_error:
+      next: "on_error"
+    set_stage: signing
+
+  - id: sign_otp_wait
+    type: UserTask
+    form: "signing"
+    wait_for: { signal: "otp_verified" }
+    timeout: { after: "PT5M", on_timeout: otp_escalation }
+    next: otp_route
+
+  - id: otp_escalation
+    type: ServiceTask
+    handler: "create_support_ticket"
+    args:
+      topic: { id_field: "otp_escalation" }
+      lifetime: { string: "PT24H" }
+    next: otp_support_wait
+
+  - id: otp_support_wait
+    type: UserTask
+    form: "support_resolution_otp"
+    wait_for:
+      signals: [ "otp_verified", "operator_otp_resolution" ]
+    timeout: { after: "PT24H", on_timeout: finalize_reject }
+    next: otp_route
+
+  - id: otp_route
+    type: Gateway
+    gateway: XOR
+    branches:
+      - when: "ctx['_last_signal'] == 'otp_verified'"
+        next: close_ticket_otp_then_sign_docs
+      - when: "ctx['_last_signal'] == 'operator_otp_resolution' && ctx.operator_action == 'back_to_card'"
+        next: close_ticket_return_to_card
+      - when: "ctx['_last_signal'] == 'operator_otp_resolution' && ctx.operator_action == 'back_to_bankid'"
+        next: close_ticket_return_to_bankid
+      - when: "ctx['_last_signal'] == 'operator_otp_resolution' && ctx.operator_action == 'back_to_terms'"
+        next: close_ticket_return_to_terms
+      - when: "ctx['_last_signal'] == 'operator_otp_resolution' && ctx.operator_action == 'back_to_final_terms'"
+        next: close_ticket_return_to_final_terms
+      - when: "ctx['_last_signal'] == 'operator_otp_resolution' && ctx.operator_action == 'reject'"
+        next: finalize_reject
+    next: finalize_reject
+
+  - id: close_ticket_return_to_final_terms
+    type: ServiceTask
+    handler: "close_support_ticket"
+    next: final_terms
+
+  - id: close_ticket_otp_then_sign_docs
+    type: ServiceTask
+    handler: "close_support_ticket"
+    next: sign_docs_and_send_to_erp
+
+  - id: sign_docs_and_send_to_erp
+    type: ServiceTask
+    handler: "sign_docs_and_send_to_erp_handler"
+    on_error:
+      next: "on_error"
+    next: make_payout
+
+  # 9) Выплата
+  - id: make_payout
+    type: ServiceTask
+    handler: "make_payout"
+    retries: { max: 5, backoff: "PT15S" }
+    next: payout_wait
+    on_error:
+      next: "on_error"
+    set_stage: payout
+
+  - id: payout_wait
+    type: UserTask
+    form: "payout_wait"
+    wait_for:
+      signals: [ "payout_confirmed", "payout_failed" ]
+    timeout: { after: "PT30M", on_timeout: payout_escalation }
+    next: payout_route
+
+  - id: payout_escalation
+    type: ServiceTask
+    handler: "create_support_ticket"
+    args:
+      topic: { id_field: "payout_escalation" }
+      lifetime: { string: "PT24H" }
+    next: payout_support_wait
+
+  - id: payout_support_wait
+    type: UserTask
+    form: "support_resolution_payout"
+    wait_for:
+      signals: [ "payout_confirmed", "operator_payout_resolution" ]
+    timeout: { after: "PT24H", on_timeout: finalize_reject }
+    next: payout_route
+
+  - id: payout_route
+    type: Gateway
+    gateway: XOR
+    branches:
+      - when: "ctx['_last_signal'] == 'payout_failed'"
+        next: payout_escalation
+      - when: "ctx['_last_signal'] == 'payout_confirmed'"
+        next: send_payout_to_erp
+      - when: "ctx['_last_signal'] == 'operator_payout_resolution' && ctx.operator_action == 'back_to_card'"
+        next: close_ticket_return_to_card
+      - when: "ctx['_last_signal'] == 'operator_payout_resolution' && ctx.operator_action == 'reject'"
+        next: finalize_reject
+    next: payout_check
+
+  - id: send_payout_to_erp
+    type: ServiceTask
+    handler: "send_payout_to_erp"
+    next: close_ticket_payout_then_check
+
+  - id: close_ticket_payout_then_check
+    type: ServiceTask
+    handler: "close_support_ticket"
+    next: payout_check
+
+  - id: payout_check
+    type: ServiceTask
+    handler: "check_payout_status"
+    next:
+      default: finalize_reject
+      branches:
+        - when: "ctx.final_payout_status == 'failed'"
+          next: finalize_reject
+        - when: "ctx.final_payout_status == 'success'"
+          next: finalize_success
+
+  - id: finalize_success
+    type: ServiceTask
+    handler: "close_all_support_processes"
+    next: send_link
+
+  - id: send_link
+    type: ServiceTask
+    handler: "send_link_to_order_handler"
+    next: end_success
+
+  - id: on_error
+    type: ServiceTask
+    handler: "stop_order"
+    args:
+      reason: { string: "process_stopped" }
+    next: finalize_reject
+
+  - id: finalize_reject
+    type: ServiceTask
+    handler: "close_all_support_processes"
+    next: stop_order
+
+  - id: stop_order
+    type: ServiceTask
+    handler: "stop_order"
+    args:
+      reason: { string: "rejected_by_process" }
+    next: end_reject
+
+  # Финиши
+  - id: end_success
+    set_stage: done_ok
+    type: End
+
+  - id: end_reject
+    set_stage: rejected
+    type: End

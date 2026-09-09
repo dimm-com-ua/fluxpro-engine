@@ -1,0 +1,86 @@
+# Home repair: booking, diagnosis, customer approval, repair, and acceptance.
+key: home_repair
+name: Home technician appointment
+version: "1.0.0"
+status: active
+effective_from: 2020-01-01T00:00:00Z
+stages:
+  - { id: requested, name: Requested, is_initial: true }
+  - assigned
+  - repairing
+  - { id: completed, name: Completed, is_final: true }
+  - { id: cancelled, name: Cancelled, is_final: true }
+signals: [technician_arrived, quote_accepted, quote_declined, repair_finished, work_accepted, rework_requested, invoice_paid]
+forms:
+  - { id: quote_form, roles: [customer] }
+  - { id: acceptance_form, roles: [customer] }
+nodes:
+  - { id: start, type: Start, next: book }
+  - id: book
+    type: ServiceTask
+    handler: book_technician
+    next: booking_result
+    on_error: { next: cancel }
+  - id: booking_result
+    type: Gateway
+    gateway: XOR
+    branches:
+      - { when: 'ctx.technician_found == true', next: arrival }
+    next: cancel
+  - id: arrival
+    type: Wait
+    set_stage: assigned
+    wait_for: { signal: technician_arrived }
+    timeout: { after: PT4H, on_timeout: cancel }
+    next: diagnose
+  - { id: diagnose, type: ServiceTask, handler: prepare_repair_quote, next: quote }
+  - id: quote
+    type: UserTask
+    form: quote_form
+    wait_for: { signals: [quote_accepted, quote_declined] }
+    timeout: { after: PT30M, on_timeout: cancel }
+    next:
+      branches:
+        - { when: 'ctx["_last_signal"] == "quote_accepted"', next: repair }
+      default: cancel
+  - id: repair
+    type: ServiceTask
+    set_stage: repairing
+    handler: authorize_repair
+    next: repair_wait
+  - id: repair_wait
+    type: Wait
+    wait_for: { signal: repair_finished }
+    timeout: { after: PT8H, on_timeout: investigate }
+    next: acceptance
+  - id: investigate
+    type: ServiceTask
+    handler: investigate_repair_delay
+    next: repair_wait
+  - id: acceptance
+    type: UserTask
+    form: acceptance_form
+    wait_for: { signals: [work_accepted, rework_requested] }
+    timeout: { after: P1D, on_timeout: investigate }
+    next:
+      branches:
+        - { when: 'ctx["_last_signal"] == "work_accepted"', next: invoice }
+      default: rework
+  - { id: rework, type: ServiceTask, handler: arrange_rework, next: repair_wait }
+  - { id: invoice, type: ServiceTask, handler: issue_repair_invoice, next: payment }
+  - id: payment
+    type: Wait
+    wait_for: { signal: invoice_paid }
+    timeout: { after: P7D, on_timeout: payment_reminder }
+    next: verify_payment
+  - { id: payment_reminder, type: ServiceTask, handler: remind_repair_payment, next: payment }
+  - id: verify_payment
+    type: ServiceTask
+    handler: verify_repair_payment
+    next:
+      branches:
+        - { when: 'ctx.invoice_settled == true', next: complete }
+      default: payment
+  - { id: complete, type: End, set_stage: completed }
+  - { id: cancel, type: ServiceTask, handler: cancel_appointment, next: cancelled }
+  - { id: cancelled, type: End, set_stage: cancelled }

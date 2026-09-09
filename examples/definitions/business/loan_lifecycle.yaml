@@ -1,0 +1,117 @@
+# Loan orchestration; an external versioned ledger owns all monetary calculations.
+key: loan_lifecycle
+name: Loan origination and servicing
+version: "1.0.0"
+status: active
+effective_from: 2020-01-01T00:00:00Z
+stages:
+  - { id: application, name: Application, is_initial: true }
+  - underwriting
+  - funding
+  - servicing
+  - overdue
+  - { id: closed, name: Closed, is_final: true }
+  - { id: declined, name: Declined, is_final: true }
+signals: [review_approved, review_declined, offer_accepted, offer_declined, signed, ledger_changed]
+forms:
+  - { id: underwriting_form, roles: [underwriter] }
+  - { id: loan_offer_form, roles: [borrower] }
+  - { id: signature_form, roles: [borrower] }
+nodes:
+  - { id: start, type: Start, next: score }
+  - id: score
+    type: ServiceTask
+    set_stage: underwriting
+    handler: score_application
+    retries: { max: 2, backoff: PT30S }
+    next: decision
+  - id: decision
+    type: Gateway
+    gateway: XOR
+    branches:
+      - { when: 'ctx.credit_decision == "approve"', next: offer }
+      - { when: 'ctx.credit_decision == "review"', next: review }
+    next: decline
+  - id: review
+    type: UserTask
+    form: underwriting_form
+    wait_for: { signals: [review_approved, review_declined] }
+    timeout: { after: P2D, on_timeout: decline }
+    next:
+      branches:
+        - { when: 'ctx["_last_signal"] == "review_approved"', next: offer }
+      default: decline
+  - { id: offer, type: ServiceTask, handler: prepare_loan_offer, next: acceptance }
+  - id: acceptance
+    type: UserTask
+    form: loan_offer_form
+    wait_for: { signals: [offer_accepted, offer_declined] }
+    timeout: { after: P3D, on_timeout: decline }
+    next:
+      branches:
+        - { when: 'ctx["_last_signal"] == "offer_accepted"', next: signing }
+      default: decline
+  - id: signing
+    type: UserTask
+    form: signature_form
+    wait_for: { signal: signed }
+    timeout: { after: P1D, on_timeout: decline }
+    next: verify_signature
+  - { id: verify_signature, type: ServiceTask, handler: verify_loan_signature, next: issue }
+  # The business idempotency key is loan_id, including across separate node visits.
+  - id: issue
+    type: ServiceTask
+    set_stage: funding
+    handler: request_loan_disbursement
+    next: funding_result
+  - id: funding_result
+    type: ServiceTask
+    handler: reconcile_disbursement
+    next:
+      branches:
+        - { when: 'ctx.funding_status == "settled"', next: schedule }
+        - { when: 'ctx.funding_status == "failed"', next: decline }
+      default: funding_wait
+  - id: funding_wait
+    type: Wait
+    wait_for: { signal: ledger_changed }
+    timeout: { after: PT15M, on_timeout: funding_result }
+    next: funding_result
+  - { id: schedule, type: ServiceTask, handler: create_repayment_schedule, next: accrue }
+  # Catch up every unprocessed business date, not one accrual per timer tick.
+  - { id: accrue, type: ServiceTask, handler: accrue_due_business_dates, next: payments }
+  - { id: payments, type: ServiceTask, handler: apply_unposted_payments, next: balance }
+  - id: balance
+    type: ServiceTask
+    handler: reconcile_loan_balance
+    next:
+      branches:
+        - { when: 'ctx.loan_paid_off == true', next: close }
+        - { when: 'ctx.loan_overdue == true', next: collections }
+      default: active
+  - id: collections
+    type: ServiceTask
+    set_stage: overdue
+    handler: manage_overdue_loan
+    next: servicing_wait
+  - id: active
+    type: ServiceTask
+    set_stage: servicing
+    handler: publish_servicing_snapshot
+    next: servicing_wait
+  - id: servicing_wait
+    type: Wait
+    wait_for: { signal: ledger_changed }
+    timeout: { after: PT1H, on_timeout: accrue }
+    next: accrue
+  # Close rechecks the ledger atomically; a signal/context flag cannot forgive debt.
+  - id: close
+    type: ServiceTask
+    handler: close_settled_loan
+    next:
+      branches:
+        - { when: 'ctx.closure_confirmed == true', next: closed }
+      default: servicing_wait
+  - { id: closed, type: End, set_stage: closed }
+  - { id: decline, type: ServiceTask, handler: close_unfunded_application, next: declined }
+  - { id: declined, type: End, set_stage: declined }

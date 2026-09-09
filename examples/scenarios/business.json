@@ -1,0 +1,1139 @@
+[
+  {
+    "name": "pizza_delivered",
+    "workflow": "pizza_order",
+    "context": {
+      "order_id": {
+        "string": "pizza_1001"
+      }
+    },
+    "responses": {
+      "reserve_ingredients": [
+        {
+          "stock_available": {
+            "boolean": true
+          }
+        }
+      ]
+    },
+    "steps": [
+      {
+        "action": "signal",
+        "at": "payment",
+        "name": "payment_received",
+        "duplicate": true
+      },
+      {
+        "action": "signal",
+        "at": "kitchen",
+        "name": "pizza_ready",
+        "duplicate": false
+      },
+      {
+        "action": "signal",
+        "at": "delivery",
+        "name": "delivered",
+        "duplicate": false
+      }
+    ],
+    "expected_nodes": "start reserve availability request_payment payment bake kitchen dispatch delivery complete"
+  },
+  {
+    "name": "pizza_out_of_stock",
+    "workflow": "pizza_order",
+    "context": {
+      "order_id": {
+        "string": "pizza_1002"
+      }
+    },
+    "responses": {
+      "reserve_ingredients": [
+        {
+          "stock_available": {
+            "boolean": false
+          }
+        }
+      ],
+      "cancel_order_and_reconcile_payment": [
+        {
+          "refund_pending": {
+            "boolean": false
+          }
+        }
+      ]
+    },
+    "steps": [],
+    "expected_nodes": "start reserve availability cancel refund_state cancelled"
+  },
+  {
+    "name": "pizza_payment_timeout",
+    "workflow": "pizza_order",
+    "context": {
+      "order_id": {
+        "string": "pizza_1003"
+      }
+    },
+    "responses": {
+      "reserve_ingredients": [
+        {
+          "stock_available": {
+            "boolean": true
+          }
+        }
+      ],
+      "cancel_order_and_reconcile_payment": [
+        {
+          "refund_pending": {
+            "boolean": false
+          }
+        }
+      ]
+    },
+    "steps": [
+      {
+        "action": "timeout",
+        "at": "payment"
+      }
+    ],
+    "expected_nodes": "start reserve availability request_payment payment cancel refund_state cancelled"
+  },
+  {
+    "name": "pizza_delivery_refund",
+    "workflow": "pizza_order",
+    "context": {
+      "order_id": {
+        "string": "pizza_1004"
+      }
+    },
+    "responses": {
+      "reserve_ingredients": [
+        {
+          "stock_available": {
+            "boolean": true
+          }
+        }
+      ],
+      "cancel_order_and_reconcile_payment": [
+        {
+          "refund_pending": {
+            "boolean": true
+          }
+        },
+        {
+          "refund_pending": {
+            "boolean": false
+          }
+        }
+      ]
+    },
+    "steps": [
+      {
+        "action": "signal",
+        "at": "payment",
+        "name": "payment_received",
+        "duplicate": false
+      },
+      {
+        "action": "signal",
+        "at": "kitchen",
+        "name": "pizza_ready",
+        "duplicate": false
+      },
+      {
+        "action": "signal",
+        "at": "delivery",
+        "name": "delivery_failed",
+        "duplicate": false
+      },
+      {
+        "action": "signal",
+        "at": "refund",
+        "name": "refund_confirmed",
+        "duplicate": true
+      }
+    ],
+    "expected_nodes": "start reserve availability request_payment payment bake kitchen dispatch delivery cancel refund_state refund cancel refund_state cancelled"
+  },
+  {
+    "name": "repair_completed",
+    "workflow": "home_repair",
+    "context": {
+      "appointment_id": {
+        "string": "repair_1001"
+      }
+    },
+    "responses": {
+      "book_technician": [
+        {
+          "technician_found": {
+            "boolean": true
+          }
+        }
+      ],
+      "verify_repair_payment": [
+        {
+          "invoice_settled": {
+            "boolean": true
+          }
+        }
+      ]
+    },
+    "steps": [
+      {
+        "action": "signal",
+        "at": "arrival",
+        "name": "technician_arrived",
+        "duplicate": false
+      },
+      {
+        "action": "signal",
+        "at": "quote",
+        "name": "quote_accepted",
+        "duplicate": false
+      },
+      {
+        "action": "signal",
+        "at": "repair_wait",
+        "name": "repair_finished",
+        "duplicate": false
+      },
+      {
+        "action": "signal",
+        "at": "acceptance",
+        "name": "work_accepted",
+        "duplicate": false
+      },
+      {
+        "action": "signal",
+        "at": "payment",
+        "name": "invoice_paid",
+        "duplicate": false
+      }
+    ],
+    "expected_nodes": "start book booking_result arrival diagnose quote repair repair_wait acceptance invoice payment verify_payment complete"
+  },
+  {
+    "name": "repair_rework_and_payment_reminder",
+    "workflow": "home_repair",
+    "context": {
+      "appointment_id": {
+        "string": "repair_1002"
+      }
+    },
+    "responses": {
+      "book_technician": [
+        {
+          "technician_found": {
+            "boolean": true
+          }
+        }
+      ],
+      "verify_repair_payment": [
+        {
+          "invoice_settled": {
+            "boolean": true
+          }
+        }
+      ]
+    },
+    "steps": [
+      {
+        "action": "signal",
+        "at": "arrival",
+        "name": "technician_arrived",
+        "duplicate": false
+      },
+      {
+        "action": "signal",
+        "at": "quote",
+        "name": "quote_accepted",
+        "duplicate": false
+      },
+      {
+        "action": "timeout",
+        "at": "repair_wait"
+      },
+      {
+        "action": "signal",
+        "at": "repair_wait",
+        "name": "repair_finished",
+        "duplicate": false
+      },
+      {
+        "action": "signal",
+        "at": "acceptance",
+        "name": "rework_requested",
+        "duplicate": false
+      },
+      {
+        "action": "signal",
+        "at": "repair_wait",
+        "name": "repair_finished",
+        "duplicate": false
+      },
+      {
+        "action": "signal",
+        "at": "acceptance",
+        "name": "work_accepted",
+        "duplicate": false
+      },
+      {
+        "action": "timeout",
+        "at": "payment"
+      },
+      {
+        "action": "signal",
+        "at": "payment",
+        "name": "invoice_paid",
+        "duplicate": true
+      }
+    ],
+    "expected_nodes": "start book booking_result arrival diagnose quote repair repair_wait investigate repair_wait acceptance rework repair_wait acceptance invoice payment payment_reminder payment verify_payment complete"
+  },
+  {
+    "name": "repair_quote_declined",
+    "workflow": "home_repair",
+    "context": {
+      "appointment_id": {
+        "string": "repair_1003"
+      }
+    },
+    "responses": {
+      "book_technician": [
+        {
+          "technician_found": {
+            "boolean": true
+          }
+        }
+      ]
+    },
+    "steps": [
+      {
+        "action": "signal",
+        "at": "arrival",
+        "name": "technician_arrived",
+        "duplicate": false
+      },
+      {
+        "action": "signal",
+        "at": "quote",
+        "name": "quote_declined",
+        "duplicate": false
+      }
+    ],
+    "expected_nodes": "start book booking_result arrival diagnose quote cancel cancelled"
+  },
+  {
+    "name": "repair_no_technician",
+    "workflow": "home_repair",
+    "context": {
+      "appointment_id": {
+        "string": "repair_1004"
+      }
+    },
+    "responses": {
+      "book_technician": [
+        {
+          "technician_found": {
+            "boolean": false
+          }
+        }
+      ]
+    },
+    "steps": [],
+    "expected_nodes": "start book booking_result cancel cancelled"
+  },
+  {
+    "name": "school_graduation",
+    "workflow": "english_school",
+    "context": {
+      "enrolment_id": {
+        "string": "student_1001"
+      }
+    },
+    "responses": {
+      "confirm_paid_enrolment": [
+        {
+          "tuition_settled": {
+            "boolean": true
+          }
+        }
+      ],
+      "reconcile_lesson_progress": [
+        {
+          "course_complete": {
+            "boolean": false
+          },
+          "needs_outreach": {
+            "boolean": false
+          }
+        },
+        {
+          "course_complete": {
+            "boolean": true
+          },
+          "needs_outreach": {
+            "boolean": false
+          }
+        }
+      ],
+      "grade_final_exam": [
+        {
+          "exam_passed": {
+            "boolean": true
+          }
+        }
+      ]
+    },
+    "steps": [
+      {
+        "action": "signal",
+        "at": "placement",
+        "name": "placement_submitted",
+        "duplicate": false
+      },
+      {
+        "action": "signal",
+        "at": "enrolment",
+        "name": "enrolled",
+        "duplicate": false
+      },
+      {
+        "action": "signal",
+        "at": "tuition",
+        "name": "tuition_paid",
+        "duplicate": false
+      },
+      {
+        "action": "signal",
+        "at": "lesson",
+        "name": "lesson_recorded",
+        "duplicate": false
+      },
+      {
+        "action": "signal",
+        "at": "lesson",
+        "name": "lesson_recorded",
+        "duplicate": true
+      },
+      {
+        "action": "signal",
+        "at": "exam",
+        "name": "exam_submitted",
+        "duplicate": false
+      }
+    ],
+    "expected_nodes": "start placement assess enrolment invoice tuition confirm_enrolment schedule lesson attendance schedule lesson attendance exam grade certificate complete"
+  },
+  {
+    "name": "school_absence_and_remedial_exam",
+    "workflow": "english_school",
+    "context": {
+      "enrolment_id": {
+        "string": "student_1002"
+      }
+    },
+    "responses": {
+      "confirm_paid_enrolment": [
+        {
+          "tuition_settled": {
+            "boolean": true
+          }
+        }
+      ],
+      "reconcile_lesson_progress": [
+        {
+          "course_complete": {
+            "boolean": false
+          },
+          "needs_outreach": {
+            "boolean": true
+          }
+        },
+        {
+          "course_complete": {
+            "boolean": true
+          },
+          "needs_outreach": {
+            "boolean": false
+          }
+        },
+        {
+          "course_complete": {
+            "boolean": true
+          },
+          "needs_outreach": {
+            "boolean": false
+          }
+        }
+      ],
+      "grade_final_exam": [
+        {
+          "exam_passed": {
+            "boolean": false
+          }
+        },
+        {
+          "exam_passed": {
+            "boolean": true
+          }
+        }
+      ]
+    },
+    "steps": [
+      {
+        "action": "signal",
+        "at": "placement",
+        "name": "placement_submitted",
+        "duplicate": false
+      },
+      {
+        "action": "signal",
+        "at": "enrolment",
+        "name": "enrolled",
+        "duplicate": false
+      },
+      {
+        "action": "signal",
+        "at": "tuition",
+        "name": "tuition_paid",
+        "duplicate": false
+      },
+      {
+        "action": "timeout",
+        "at": "lesson"
+      },
+      {
+        "action": "signal",
+        "at": "lesson",
+        "name": "lesson_recorded",
+        "duplicate": false
+      },
+      {
+        "action": "timeout",
+        "at": "exam"
+      },
+      {
+        "action": "signal",
+        "at": "exam",
+        "name": "exam_submitted",
+        "duplicate": false
+      },
+      {
+        "action": "signal",
+        "at": "lesson",
+        "name": "lesson_recorded",
+        "duplicate": false
+      },
+      {
+        "action": "signal",
+        "at": "exam",
+        "name": "exam_submitted",
+        "duplicate": false
+      }
+    ],
+    "expected_nodes": "start placement assess enrolment invoice tuition confirm_enrolment schedule lesson attendance outreach lesson attendance exam exam_reminder exam grade remedial lesson attendance exam grade certificate complete"
+  },
+  {
+    "name": "school_offer_declined",
+    "workflow": "english_school",
+    "context": {
+      "enrolment_id": {
+        "string": "student_1003"
+      }
+    },
+    "responses": {},
+    "steps": [
+      {
+        "action": "signal",
+        "at": "placement",
+        "name": "placement_submitted",
+        "duplicate": false
+      },
+      {
+        "action": "signal",
+        "at": "enrolment",
+        "name": "declined",
+        "duplicate": false
+      }
+    ],
+    "expected_nodes": "start placement assess enrolment withdraw withdrawn"
+  },
+  {
+    "name": "loan_repaid",
+    "workflow": "loan_lifecycle",
+    "context": {
+      "loan_id": {
+        "string": "loan_1001"
+      },
+      "currency": {
+        "string": "DEMO"
+      },
+      "principal_minor": {
+        "number": 100000
+      }
+    },
+    "responses": {
+      "score_application": [
+        {
+          "credit_decision": {
+            "string": "approve"
+          }
+        }
+      ],
+      "reconcile_disbursement": [
+        {
+          "funding_status": {
+            "string": "settled"
+          }
+        }
+      ],
+      "reconcile_loan_balance": [
+        {
+          "loan_paid_off": {
+            "boolean": false
+          },
+          "loan_overdue": {
+            "boolean": false
+          }
+        },
+        {
+          "loan_paid_off": {
+            "boolean": true
+          },
+          "loan_overdue": {
+            "boolean": false
+          }
+        }
+      ],
+      "close_settled_loan": [
+        {
+          "closure_confirmed": {
+            "boolean": true
+          }
+        }
+      ]
+    },
+    "steps": [
+      {
+        "action": "signal",
+        "at": "acceptance",
+        "name": "offer_accepted",
+        "duplicate": false
+      },
+      {
+        "action": "signal",
+        "at": "signing",
+        "name": "signed",
+        "duplicate": false
+      },
+      {
+        "action": "signal",
+        "at": "servicing_wait",
+        "name": "ledger_changed",
+        "duplicate": true
+      }
+    ],
+    "expected_nodes": "start score decision offer acceptance signing verify_signature issue funding_result schedule accrue payments balance active servicing_wait accrue payments balance close closed"
+  },
+  {
+    "name": "loan_manual_review_overdue_and_closure_recheck",
+    "workflow": "loan_lifecycle",
+    "context": {
+      "loan_id": {
+        "string": "loan_1002"
+      },
+      "currency": {
+        "string": "DEMO"
+      },
+      "principal_minor": {
+        "number": 100000
+      }
+    },
+    "responses": {
+      "score_application": [
+        {
+          "credit_decision": {
+            "string": "review"
+          }
+        }
+      ],
+      "reconcile_disbursement": [
+        {
+          "funding_status": {
+            "string": "pending"
+          }
+        },
+        {
+          "funding_status": {
+            "string": "settled"
+          }
+        }
+      ],
+      "accrue_due_business_dates": [
+        {
+          "accrual_cursor": {
+            "string": "2026-09-07"
+          }
+        },
+        {
+          "accrual_cursor": {
+            "string": "2026-09-09"
+          }
+        },
+        {
+          "accrual_cursor": {
+            "string": "2026-09-09"
+          }
+        },
+        {
+          "accrual_cursor": {
+            "string": "2026-09-09"
+          }
+        }
+      ],
+      "reconcile_loan_balance": [
+        {
+          "loan_paid_off": {
+            "boolean": false
+          },
+          "loan_overdue": {
+            "boolean": false
+          }
+        },
+        {
+          "loan_paid_off": {
+            "boolean": false
+          },
+          "loan_overdue": {
+            "boolean": true
+          }
+        },
+        {
+          "loan_paid_off": {
+            "boolean": true
+          },
+          "loan_overdue": {
+            "boolean": false
+          }
+        },
+        {
+          "loan_paid_off": {
+            "boolean": true
+          },
+          "loan_overdue": {
+            "boolean": false
+          }
+        }
+      ],
+      "close_settled_loan": [
+        {
+          "closure_confirmed": {
+            "boolean": false
+          }
+        },
+        {
+          "closure_confirmed": {
+            "boolean": true
+          }
+        }
+      ]
+    },
+    "steps": [
+      {
+        "action": "signal",
+        "at": "review",
+        "name": "review_approved",
+        "duplicate": false
+      },
+      {
+        "action": "signal",
+        "at": "acceptance",
+        "name": "offer_accepted",
+        "duplicate": false
+      },
+      {
+        "action": "signal",
+        "at": "signing",
+        "name": "signed",
+        "duplicate": false
+      },
+      {
+        "action": "timeout",
+        "at": "funding_wait"
+      },
+      {
+        "action": "timeout",
+        "at": "servicing_wait"
+      },
+      {
+        "action": "signal",
+        "at": "servicing_wait",
+        "name": "ledger_changed",
+        "duplicate": true
+      },
+      {
+        "action": "timeout",
+        "at": "servicing_wait"
+      }
+    ],
+    "expected_nodes": "start score decision review offer acceptance signing verify_signature issue funding_result funding_wait funding_result schedule accrue payments balance active servicing_wait accrue payments balance collections servicing_wait accrue payments balance close servicing_wait accrue payments balance close closed"
+  },
+  {
+    "name": "loan_scoring_declined",
+    "workflow": "loan_lifecycle",
+    "context": {
+      "loan_id": {
+        "string": "loan_1003"
+      }
+    },
+    "responses": {
+      "score_application": [
+        {
+          "credit_decision": {
+            "string": "decline"
+          }
+        }
+      ]
+    },
+    "steps": [],
+    "expected_nodes": "start score decision decline declined"
+  },
+  {
+    "name": "loan_offer_expired",
+    "workflow": "loan_lifecycle",
+    "context": {
+      "loan_id": {
+        "string": "loan_1004"
+      }
+    },
+    "responses": {
+      "score_application": [
+        {
+          "credit_decision": {
+            "string": "approve"
+          }
+        }
+      ]
+    },
+    "steps": [
+      {
+        "action": "timeout",
+        "at": "acceptance"
+      }
+    ],
+    "expected_nodes": "start score decision offer acceptance decline declined"
+  },
+  {
+    "name": "loan_funding_failed",
+    "workflow": "loan_lifecycle",
+    "context": {
+      "loan_id": {
+        "string": "loan_1005"
+      }
+    },
+    "responses": {
+      "score_application": [
+        {
+          "credit_decision": {
+            "string": "approve"
+          }
+        }
+      ],
+      "reconcile_disbursement": [
+        {
+          "funding_status": {
+            "string": "failed"
+          }
+        }
+      ]
+    },
+    "steps": [
+      {
+        "action": "signal",
+        "at": "acceptance",
+        "name": "offer_accepted",
+        "duplicate": false
+      },
+      {
+        "action": "signal",
+        "at": "signing",
+        "name": "signed",
+        "duplicate": false
+      }
+    ],
+    "expected_nodes": "start score decision offer acceptance signing verify_signature issue funding_result decline declined"
+  },
+  {
+    "name": "return_refund_reconciled",
+    "workflow": "retail_return",
+    "context": {
+      "return_id": {
+        "string": "return_1001"
+      }
+    },
+    "responses": {
+      "check_return_eligibility": [
+        {
+          "return_eligible": {
+            "boolean": true
+          }
+        }
+      ],
+      "inspect_returned_item": [
+        {
+          "inspection_passed": {
+            "boolean": true
+          }
+        }
+      ],
+      "reconcile_return_refund": [
+        {
+          "refund_settled": {
+            "boolean": false
+          }
+        },
+        {
+          "refund_settled": {
+            "boolean": true
+          }
+        }
+      ]
+    },
+    "steps": [
+      {
+        "action": "timeout",
+        "at": "parcel"
+      },
+      {
+        "action": "signal",
+        "at": "parcel",
+        "name": "parcel_received",
+        "duplicate": false
+      },
+      {
+        "action": "timeout",
+        "at": "refund_wait"
+      }
+    ],
+    "expected_nodes": "start eligibility label parcel locate parcel inspect refund reconcile refund_wait reconcile complete"
+  },
+  {
+    "name": "return_ineligible",
+    "workflow": "retail_return",
+    "context": {
+      "return_id": {
+        "string": "return_1002"
+      }
+    },
+    "responses": {
+      "check_return_eligibility": [
+        {
+          "return_eligible": {
+            "boolean": false
+          }
+        }
+      ]
+    },
+    "steps": [],
+    "expected_nodes": "start eligibility reject rejected"
+  },
+  {
+    "name": "claim_settled_after_escalation",
+    "workflow": "insurance_claim",
+    "context": {
+      "claim_id": {
+        "string": "claim_1001"
+      }
+    },
+    "responses": {
+      "verify_policy_coverage": [
+        {
+          "covered": {
+            "boolean": true
+          }
+        }
+      ],
+      "reconcile_claim_settlement": [
+        {
+          "settlement_paid": {
+            "boolean": false
+          }
+        },
+        {
+          "settlement_paid": {
+            "boolean": true
+          }
+        }
+      ]
+    },
+    "steps": [
+      {
+        "action": "timeout",
+        "at": "evidence"
+      },
+      {
+        "action": "signal",
+        "at": "evidence",
+        "name": "evidence_uploaded",
+        "duplicate": false
+      },
+      {
+        "action": "timeout",
+        "at": "assess"
+      },
+      {
+        "action": "signal",
+        "at": "assess",
+        "name": "claim_approved",
+        "duplicate": false
+      },
+      {
+        "action": "signal",
+        "at": "settlement",
+        "name": "settlement_changed",
+        "duplicate": true
+      }
+    ],
+    "expected_nodes": "start coverage evidence remind evidence assess escalate assess payout reconcile settlement reconcile complete"
+  },
+  {
+    "name": "claim_rejected",
+    "workflow": "insurance_claim",
+    "context": {
+      "claim_id": {
+        "string": "claim_1002"
+      }
+    },
+    "responses": {
+      "verify_policy_coverage": [
+        {
+          "covered": {
+            "boolean": true
+          }
+        }
+      ]
+    },
+    "steps": [
+      {
+        "action": "signal",
+        "at": "evidence",
+        "name": "evidence_uploaded",
+        "duplicate": false
+      },
+      {
+        "action": "signal",
+        "at": "assess",
+        "name": "claim_rejected",
+        "duplicate": false
+      }
+    ],
+    "expected_nodes": "start coverage evidence assess reject rejected"
+  },
+  {
+    "name": "subscription_renewed",
+    "workflow": "subscription_renewal",
+    "context": {
+      "subscription_id": {
+        "string": "subscription_1001"
+      },
+      "billing_period": {
+        "string": "2026_09"
+      }
+    },
+    "responses": {
+      "reconcile_subscription_invoice": [
+        {
+          "invoice_paid": {
+            "boolean": true
+          },
+          "grace_expired": {
+            "boolean": false
+          }
+        }
+      ]
+    },
+    "steps": [],
+    "expected_nodes": "start charge reconcile extend complete"
+  },
+  {
+    "name": "subscription_paid_in_grace",
+    "workflow": "subscription_renewal",
+    "context": {
+      "subscription_id": {
+        "string": "subscription_1002"
+      },
+      "billing_period": {
+        "string": "2026_09"
+      }
+    },
+    "responses": {
+      "reconcile_subscription_invoice": [
+        {
+          "invoice_paid": {
+            "boolean": false
+          },
+          "grace_expired": {
+            "boolean": false
+          }
+        },
+        {
+          "invoice_paid": {
+            "boolean": true
+          },
+          "grace_expired": {
+            "boolean": false
+          }
+        }
+      ]
+    },
+    "steps": [
+      {
+        "action": "signal",
+        "at": "payment",
+        "name": "billing_changed",
+        "duplicate": true
+      }
+    ],
+    "expected_nodes": "start charge reconcile remind payment reconcile extend complete"
+  },
+  {
+    "name": "subscription_grace_expired",
+    "workflow": "subscription_renewal",
+    "context": {
+      "subscription_id": {
+        "string": "subscription_1003"
+      },
+      "billing_period": {
+        "string": "2026_09"
+      }
+    },
+    "responses": {
+      "reconcile_subscription_invoice": [
+        {
+          "invoice_paid": {
+            "boolean": false
+          },
+          "grace_expired": {
+            "boolean": false
+          }
+        },
+        {
+          "invoice_paid": {
+            "boolean": false
+          },
+          "grace_expired": {
+            "boolean": true
+          }
+        }
+      ]
+    },
+    "steps": [
+      {
+        "action": "timeout",
+        "at": "payment"
+      }
+    ],
+    "expected_nodes": "start charge reconcile remind payment reconcile suspend suspended"
+  }
+]

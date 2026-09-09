@@ -1,0 +1,51 @@
+# Retail return: eligibility, parcel receipt, inspection, and confirmed refund.
+key: retail_return
+name: Online purchase return
+version: "1.0.0"
+status: active
+effective_from: 2020-01-01T00:00:00Z
+stages:
+  - { id: requested, name: Requested, is_initial: true }
+  - { id: refunded, name: Refunded, is_final: true }
+  - { id: rejected, name: Rejected, is_final: true }
+signals: [parcel_received, refund_changed]
+forms: []
+nodes:
+  - { id: start, type: Start, next: eligibility }
+  - id: eligibility
+    type: ServiceTask
+    handler: check_return_eligibility
+    next:
+      branches:
+        - { when: 'ctx.return_eligible == true', next: label }
+      default: reject
+  - { id: label, type: ServiceTask, handler: issue_return_label, next: parcel }
+  - id: parcel
+    type: Wait
+    wait_for: { signal: parcel_received }
+    timeout: { after: P14D, on_timeout: locate }
+    next: inspect
+  - { id: locate, type: ServiceTask, handler: locate_return_parcel, next: parcel }
+  - id: inspect
+    type: ServiceTask
+    handler: inspect_returned_item
+    next:
+      branches:
+        - { when: 'ctx.inspection_passed == true', next: refund }
+      default: reject
+  - { id: refund, type: ServiceTask, handler: request_return_refund, next: reconcile }
+  - id: reconcile
+    type: ServiceTask
+    handler: reconcile_return_refund
+    next:
+      branches:
+        - { when: 'ctx.refund_settled == true', next: complete }
+      default: refund_wait
+  - id: refund_wait
+    type: Wait
+    wait_for: { signal: refund_changed }
+    timeout: { after: PT1H, on_timeout: reconcile }
+    next: reconcile
+  - { id: complete, type: End, set_stage: refunded }
+  - { id: reject, type: ServiceTask, handler: notify_return_rejection, next: rejected }
+  - { id: rejected, type: End, set_stage: rejected }

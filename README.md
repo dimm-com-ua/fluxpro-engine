@@ -31,6 +31,40 @@ fluxpro-engine = { version = "0.1", features = ["runtime"] }
 
 The crate has no dependency on the Lendiq application or its workspace crates.
 
+## Visual process editor
+
+The workspace also contains [`fluxpro-editor`](crates/fluxpro-editor/README.md),
+a separate Leptos 0.8 crate exporting one embeddable `<ProcessEditor />` component.
+It provides vertical drag-and-drop authoring, YAML import/export, smooth
+connections, manual layout, and undo/redo. Pass a document and optional
+`on_change` / `on_save` callbacks to integrate with an existing interface.
+The engine has no dependency on Leptos; the editor uses its default model layer.
+
+## Documentation and examples
+
+- [Node reference](docs/nodes.md): all six node types, fields, routing, signals,
+  timeouts, retries, lifecycle hooks, and current runtime limitations.
+- [Runnable examples](docs/examples.md): JSON/YAML validation, a service handler,
+  a PostgreSQL workflow, and HTTP integration.
+- [Business workflow catalog](docs/business/README.md): seven definitions and 23
+  executable scenarios for delivery, repairs, education, lending, retail,
+  insurance, and subscriptions.
+- [Loan lifecycle](docs/business/loan-lifecycle.md): scoring, funding, repayment
+  schedules, daily accrual, payment reconciliation, and verified closure.
+- [Architecture and documentation style](docs/architecture.md): module
+  responsibilities, persistence, queue execution, administration, and checks.
+
+Validate a definition without a database:
+
+```bash
+cargo run --example validate_process
+cargo run --features api --example validate_yaml
+```
+
+The [approval workflow](examples/definitions/approval.yaml) combines `Start`,
+`ServiceTask`, `UserTask`, `Gateway`, `Wait`, and `End`. Generate the complete
+Rust API reference with `cargo doc --all-features --no-deps`.
+
 ## Publishing
 
 The repository is released through GitHub Releases. After creating a release
@@ -54,7 +88,9 @@ All engine-owned tables live in the dedicated `fluxpro` PostgreSQL schema.
 Applications can apply the migrations embedded in the crate:
 
 ```rust,no_run
-fluxpro_engine::migrations::migrate(&pool).await?;
+async fn migrate(pool: &sqlx::PgPool) -> Result<(), sqlx::migrate::MigrateError> {
+    fluxpro_engine::migrations::migrate(pool).await
+}
 ```
 
 The engine always uses explicitly qualified table names and does not modify or
@@ -70,10 +106,14 @@ use fluxpro_engine::admin::{
     FluxproAdminService, PageRequest, ProcessInstanceFilter,
 };
 
-let admin = FluxproAdminService::new(pool);
-let instances = admin
-    .list_process_instances(ProcessInstanceFilter::default(), PageRequest::default())
-    .await?;
+async fn list_instances(pool: sqlx::PgPool) -> Result<(), fluxpro_engine::admin::AdminError> {
+    let admin = FluxproAdminService::new(pool);
+    let instances = admin
+        .list_process_instances(ProcessInstanceFilter::default(), PageRequest::default())
+        .await?;
+    println!("{} instances", instances.total);
+    Ok(())
+}
 ```
 
 Administrative queue retry and cancellation only affect tasks that do not have
@@ -93,3 +133,24 @@ another application instance.
 
 For reliable failover, keep `heartbeat_interval_ms` comfortably below
 `task_lease_ms`. The defaults are 20 seconds and 60 seconds respectively.
+
+## Durable transitions
+
+Queued execution commits context, node/stage state, wait completion, successor
+tasks, and source-task acknowledgement in one PostgreSQL transaction. Lease and
+instance-revision checks reject stale attempts. A signal and a timeout can close
+a particular wait visit only once, including when the process revisits a node.
+Database failures retain the source task for recovery after lease expiry.
+
+Host handlers execute outside the transaction, so external effects still need
+application idempotency. See [recovery and migration details](docs/architecture.md#atomic-transitions-and-recovery).
+Stop and drain all old runners before applying migrations `0006`–`0007`.
+
+Exhausted execution failures suspend the instance with a retained task and a
+saved incident. Inspect it with `get_open_incident` and explicitly resume that
+incident with `resume_instance`. Invalid routing expressions cannot select a
+fallback. Handler patches persist removals atomically. Only active, effective
+versions may start; published versions are immutable and `(key, version)` is
+unique. Signals accept an optional stable `event_id` for durable deduplication
+and `wait_visit_id` for targeting a particular wait visit. See the
+[upgrade and recovery contract](docs/architecture.md#incidents-publication-and-event-identity).

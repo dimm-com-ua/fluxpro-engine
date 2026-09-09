@@ -1,3 +1,5 @@
+//! Markdown diagnostic reports containing definition, context, and execution history.
+
 use super::{
     AdminResult, ExecutionLogEntry, FluxproAdminService, QUEUE_SELECT, QueueTaskSummary,
     SignalHistoryEntry,
@@ -140,6 +142,7 @@ impl FluxproAdminService {
             ],
             payload: log.details.clone(),
         }));
+        // Keep instance, stage, signal, and execution entries stable at equal timestamps.
         timeline.sort_by_key(|entry| (entry.at, entry.order));
 
         let warning_count = logs.iter().filter(|log| log.level == "warning").count();

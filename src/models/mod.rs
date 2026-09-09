@@ -1,3 +1,5 @@
+//! Serializable workflow definitions, commands, identifiers, and execution values.
+
 pub mod commands;
 pub mod context_map;
 pub mod execution_log;

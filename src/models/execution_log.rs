@@ -1,15 +1,23 @@
+//! Structured execution events for diagnostics and process history.
+
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::fmt::{Display, Formatter};
 use uuid::Uuid;
 
+/// Severity serialized as a lowercase name for execution history.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ExecutionLogLevel {
+    /// Detailed diagnostic information.
     Debug,
+    /// Normal execution information.
     Info,
+    /// A recoverable or unusual condition.
     Warning,
+    /// An operation failed; associated data describes the failure.
     Error,
+    /// A serious failure or detected stalled process.
     Critical,
 }
 
@@ -33,20 +41,32 @@ impl Display for ExecutionLogLevel {
 /// errors to be implemented without changing the log schema.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutionLogEvent {
+    /// Execution event severity.
     pub level: ExecutionLogLevel,
+    /// Stable event category, such as `node.entered`.
     pub event_type: String,
+    /// Component that emitted the event.
     pub source: String,
+    /// Human-readable event description.
     pub message: String,
+    /// Workflow-local node identifier.
     pub node_id: Option<String>,
+    /// Registered handler identifier, when applicable.
     pub handler_id: Option<String>,
+    /// Database identity of the associated queue item.
     pub queue_task_uuid: Option<Uuid>,
+    /// Queue claim count associated with this event.
     pub attempt: Option<i32>,
+    /// Machine-readable error category, when available.
     pub error_kind: Option<String>,
+    /// Error description, when available.
     pub error_message: Option<String>,
+    /// Additional diagnostic details for this event or issue.
     pub details: Value,
 }
 
 impl ExecutionLogEvent {
+    /// Creates an informational execution event with empty diagnostic details.
     pub fn info(
         event_type: impl Into<String>,
         source: impl Into<String>,
@@ -67,6 +87,7 @@ impl ExecutionLogEvent {
         }
     }
 
+    /// Creates a warning execution event with empty diagnostic details.
     pub fn warning(
         event_type: impl Into<String>,
         source: impl Into<String>,
@@ -77,6 +98,7 @@ impl ExecutionLogEvent {
         event
     }
 
+    /// Creates a critical execution event with empty diagnostic details.
     pub fn critical(
         event_type: impl Into<String>,
         source: impl Into<String>,
@@ -87,6 +109,7 @@ impl ExecutionLogEvent {
         event
     }
 
+    /// Creates an error event retaining the error message and cause-chain details.
     pub fn error(
         event_type: impl Into<String>,
         source: impl Into<String>,

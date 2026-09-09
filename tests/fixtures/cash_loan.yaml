@@ -1,3 +1,4 @@
+# Route either calculator signal, then demonstrate timed form and technical waits.
 key: example_gateway_wait
 name: Example gateway and wait
 version: "v1.0.0"
@@ -35,9 +36,9 @@ nodes:
     type: Gateway
     gateway: XOR
     branches:
-      - when: "ctx._last_signal == 'calculator_interacted'"
+      - when: 'ctx["_last_signal"] == "calculator_interacted"'
         next: select_terms
-      - when: "ctx._last_signal == 'terms_selected'"
+      - when: 'ctx["_last_signal"] == "terms_selected"'
         next: close_ticket_terms
     next: finalize_reject
   - id: select_terms

@@ -1,25 +1,37 @@
+//! Age-based retry decisions for signals awaiting a compatible node.
+
 use chrono::{DateTime, Duration, Utc};
 
+/// One age range in a signal retry policy; tiers are checked in supplied order.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SignalRetryTier {
+    /// Stable tier name used in delivery diagnostics.
     pub name: &'static str,
+    /// Exclusive maximum signal age covered by this tier.
     pub until: Duration,
+    /// Delay before the next delivery attempt.
     pub delay: Duration,
 }
 
+/// Next delivery time and diagnostic metadata for a deferred signal.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SignalRetryDecision {
+    /// Name of the selected retry tier.
     pub phase: &'static str,
+    /// UTC time for the next signal delivery attempt.
     pub retry_at: DateTime<Utc>,
+    /// UTC deadline beyond which delivery is no longer retried.
     pub expires_at: DateTime<Utc>,
+    /// Elapsed time since admission, clamped to zero for future timestamps.
     pub age: Duration,
+    /// Delay before the next delivery attempt.
     pub delay: Duration,
 }
 
 /// Durable delivery policy for signals that arrive before their accepting node.
 ///
-/// The default horizon is intentionally longer than the longest 24-hour waits
-/// used by the TK Online and Cash Online process definitions.
+/// The default policy retries for up to 26 hours, with increasingly spaced
+/// attempts so signals can survive long-running waits.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SignalRetryPolicy {
     tiers: Vec<SignalRetryTier>,
@@ -62,6 +74,9 @@ impl Default for SignalRetryPolicy {
 }
 
 impl SignalRetryPolicy {
+    /// Creates a policy from ordered tiers and an expiry horizon.
+    ///
+    /// The constructor does not validate ordering, positive delays, or tier coverage.
     pub fn new(tiers: Vec<SignalRetryTier>, expires_after: Duration) -> Self {
         Self {
             tiers,
@@ -69,10 +84,14 @@ impl SignalRetryPolicy {
         }
     }
 
+    /// Returns the maximum age of a signal eligible for deferred delivery.
     pub fn expires_after(&self) -> Duration {
         self.expires_after
     }
 
+    /// Selects the first tier whose age boundary exceeds the signal age.
+    ///
+    /// Returns `None` when the signal has expired or no tier covers its age.
     pub fn decision(
         &self,
         queued_at: DateTime<Utc>,

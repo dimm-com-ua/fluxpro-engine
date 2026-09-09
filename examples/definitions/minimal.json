@@ -1,0 +1,15 @@
+{
+  "key": "minimal_demo",
+  "name": "Minimal workflow",
+  "version": "1.0.0",
+  "status": "active",
+  "effective_from": "2026-01-01T00:00:00Z",
+  "stages": [
+    { "id": "created", "name": "Created", "is_initial": true },
+    { "id": "completed", "name": "Completed", "is_final": true }
+  ],
+  "nodes": [
+    { "id": "start", "type": "Start", "next": "done", "set_stage": "created" },
+    { "id": "done", "type": "End", "set_stage": "completed" }
+  ]
+}

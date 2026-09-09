@@ -1,9 +1,12 @@
+//! HTTP signal delivery to an instance identified by its runtime token.
+
 use crate::engine::fluxpro_engine::FluxProEngine;
 use crate::impls::create_process_error_impls::HttpResponseWrapper;
 use crate::models::commands::post_signal::PostSignal;
 use crate::models::id_field::IdField;
 use actix_web::{HttpResponse, Responder, post, web};
 
+/// Queues a declared signal using the runtime instance token as `process_id`.
 #[post("/{process_id}/post_signal")]
 pub async fn post_signal(
     process_id: web::Path<IdField>,

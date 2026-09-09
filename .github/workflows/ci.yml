@@ -9,12 +9,45 @@ permissions:
   contents: read
 
 jobs:
+  editor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test -p fluxpro-editor
+      - run: cargo test -p fluxpro-editor --features ssr
+      - run: cargo check -p fluxpro-editor --features csr --target wasm32-unknown-unknown --bins
+      - run: cargo check -p fluxpro-editor --features hydrate --target wasm32-unknown-unknown
+      - run: cargo rustdoc -p fluxpro-editor --features ssr --lib -- -D missing-docs -D rustdoc::broken_intra_doc_links
   check:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: fluxpro_test
+          POSTGRES_PASSWORD: fluxpro_test
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U fluxpro_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all -- --check
       - run: cargo test --all-features
+      - name: Check durable PostgreSQL transitions
+        run: cargo test --all-features --test durable_transitions -- --ignored --test-threads=4
+        env:
+          DATABASE_URL: postgres://fluxpro_test:fluxpro_test@localhost:5432/postgres
+      - name: Check public API documentation
+        run: cargo rustdoc --all-features --lib -- -D missing-docs -D rustdoc::broken_intra_doc_links -D rustdoc::invalid_rust_codeblocks
       - run: cargo package --allow-dirty

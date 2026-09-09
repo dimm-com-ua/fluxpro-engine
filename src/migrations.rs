@@ -1,3 +1,5 @@
+//! Embedded, versioned migrations for the dedicated `fluxpro` schema.
+
 use sqlx::Executor;
 use sqlx::PgPool;
 use sqlx::migrate::{MigrateError, Migrator};

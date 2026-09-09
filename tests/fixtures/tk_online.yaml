@@ -1,3 +1,4 @@
+# Enter an untimed form first; start the timeout only after the page-open signal.
 key: example_signal_timeout
 name: Example signal timeout
 version: "v1.0.0"

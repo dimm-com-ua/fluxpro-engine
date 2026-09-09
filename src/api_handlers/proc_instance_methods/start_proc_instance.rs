@@ -1,3 +1,5 @@
+//! HTTP startup of an instance using a process definition key.
+
 use crate::engine::fluxpro_engine::FluxProEngine;
 use crate::impls::create_process_error_impls::HttpResponseWrapper;
 use crate::models::commands::start_process_instance::{
@@ -9,6 +11,7 @@ use actix_web::{HttpResponse, Responder, post, web};
 use log::{error, info};
 use std::sync::Arc;
 
+/// Starts an instance using the definition key in the URL and JSON request body.
 #[post("/{process_id}/start")]
 pub async fn start_proc_instance(
     process_id: web::Path<IdField>,

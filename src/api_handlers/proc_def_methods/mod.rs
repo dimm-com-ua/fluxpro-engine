@@ -1,3 +1,5 @@
+//! HTTP ingestion of UTF-8 YAML workflow definitions.
+
 use crate::engine::fluxpro_engine::FluxProEngine;
 use crate::models::process_def::ProcessDefinition;
 use actix_web::{HttpResponse, put, web};
@@ -5,6 +7,7 @@ use log::info;
 use serde_json::json;
 use std::sync::Arc;
 
+/// Validates and persists a workflow definition, returning its database ID.
 #[put("/create")]
 pub async fn create_process_def(
     body: web::Bytes,

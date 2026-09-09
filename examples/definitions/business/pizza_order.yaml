@@ -1,0 +1,85 @@
+# Restaurant order: payment, kitchen preparation, delivery, and compensation.
+key: pizza_order
+name: Pizza order and delivery
+version: "1.0.0"
+status: active
+effective_from: 2020-01-01T00:00:00Z
+stages:
+  - { id: created, name: Created, is_initial: true }
+  - awaiting_payment
+  - cooking
+  - delivering
+  - { id: delivered, name: Delivered, is_final: true }
+  - { id: cancelled, name: Cancelled, is_final: true }
+signals: [payment_received, payment_failed, pizza_ready, delivered, delivery_failed, refund_confirmed]
+forms: []
+nodes:
+  - { id: start, type: Start, next: reserve }
+  - id: reserve
+    type: ServiceTask
+    handler: reserve_ingredients
+    next: availability
+    on_error: { next: cancel }
+  - id: availability
+    type: Gateway
+    gateway: XOR
+    branches:
+      - { when: 'ctx.stock_available == true', next: request_payment }
+    next: cancel
+  - id: request_payment
+    type: ServiceTask
+    handler: create_payment_intent
+    next: payment
+    on_error: { next: cancel }
+  - id: payment
+    type: Wait
+    set_stage: awaiting_payment
+    wait_for: { signals: [payment_received, payment_failed] }
+    timeout: { after: PT10M, on_timeout: cancel }
+    next:
+      branches:
+        - { when: 'ctx["_last_signal"] == "payment_received"', next: bake }
+      default: cancel
+  - id: bake
+    type: ServiceTask
+    set_stage: cooking
+    handler: submit_kitchen_order
+    next: kitchen
+    on_error: { next: cancel }
+  - id: kitchen
+    type: Wait
+    wait_for: { signal: pizza_ready }
+    timeout: { after: PT30M, on_timeout: cancel }
+    next: dispatch
+  - id: dispatch
+    type: ServiceTask
+    set_stage: delivering
+    handler: dispatch_courier
+    next: delivery
+    on_error: { next: cancel }
+  - id: delivery
+    type: Wait
+    wait_for: { signals: [delivered, delivery_failed] }
+    timeout: { after: PT1H, on_timeout: cancel }
+    next:
+      branches:
+        - { when: 'ctx["_last_signal"] == "delivered"', next: complete }
+      default: cancel
+  - { id: complete, type: End, set_stage: delivered }
+  # Reconcile captured funds, release stock, and fence late kitchen/courier commands.
+  - id: cancel
+    type: ServiceTask
+    handler: cancel_order_and_reconcile_payment
+    next: refund_state
+  - id: refund_state
+    type: Gateway
+    gateway: XOR
+    branches:
+      - { when: 'ctx.refund_pending == true', next: refund }
+    next: cancelled
+  - id: refund
+    type: Wait
+    wait_for: { signal: refund_confirmed }
+    timeout: { after: PT1H, on_timeout: cancel }
+    next: cancel
+  - { id: cancelled, type: End, set_stage: cancelled }

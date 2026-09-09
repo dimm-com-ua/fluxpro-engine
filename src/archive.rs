@@ -1,28 +1,39 @@
+//! Batch export and deletion of technical history with signal deduplication protection.
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::{FromRow, PgPool};
 use uuid::Uuid;
 
+/// Engine-owned technical history eligible for archive operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FluxproArchiveSource {
+    /// Structured process execution events.
     ExecutionLog,
+    /// Admitted signal payloads used for history and deduplication.
     SignalHistory,
 }
 
+/// One archive row containing its identity, event timestamp, and raw JSON data.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct FluxproArchiveRecord {
+    /// Database row identity.
     pub uuid: Uuid,
+    /// Original UTC timestamp of the archived event.
     pub event_at: DateTime<Utc>,
+    /// Complete source row represented as JSON for external archival.
     pub data: Value,
 }
 
+/// Batch access to technical logs for host-managed external archival.
 #[derive(Clone)]
 pub struct FluxproArchiveService {
     pool: PgPool,
 }
 
 impl FluxproArchiveService {
+    /// Uses an existing pool for technical-history archive operations.
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }

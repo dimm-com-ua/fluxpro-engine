@@ -1,0 +1,86 @@
+# English course: placement, enrolment, a recurring lesson loop, and graduation.
+key: english_school
+name: English course enrolment and learning
+version: "1.0.0"
+status: active
+effective_from: 2020-01-01T00:00:00Z
+stages:
+  - { id: lead, name: Lead, is_initial: true }
+  - learning
+  - { id: graduated, name: Graduated, is_final: true }
+  - { id: withdrawn, name: Withdrawn, is_final: true }
+signals: [placement_submitted, enrolled, declined, tuition_paid, lesson_recorded, exam_submitted]
+forms:
+  - { id: placement_form, roles: [student] }
+  - { id: enrolment_form, roles: [student] }
+  - { id: exam_form, roles: [student] }
+nodes:
+  - { id: start, type: Start, next: placement }
+  - id: placement
+    type: UserTask
+    form: placement_form
+    wait_for: { signal: placement_submitted }
+    timeout: { after: P7D, on_timeout: withdraw }
+    next: assess
+  - { id: assess, type: ServiceTask, handler: assess_placement_and_offer, next: enrolment }
+  - id: enrolment
+    type: UserTask
+    form: enrolment_form
+    wait_for: { signals: [enrolled, declined] }
+    timeout: { after: P3D, on_timeout: withdraw }
+    next:
+      branches:
+        - { when: 'ctx["_last_signal"] == "enrolled"', next: invoice }
+      default: withdraw
+  - { id: invoice, type: ServiceTask, handler: issue_tuition_invoice, next: tuition }
+  - id: tuition
+    type: Wait
+    wait_for: { signal: tuition_paid }
+    timeout: { after: P7D, on_timeout: withdraw }
+    next: confirm_enrolment
+  - id: confirm_enrolment
+    type: ServiceTask
+    handler: confirm_paid_enrolment
+    next:
+      branches:
+        - { when: 'ctx.tuition_settled == true', next: schedule }
+      default: tuition
+  - id: schedule
+    type: ServiceTask
+    set_stage: learning
+    handler: schedule_next_lesson
+    next: lesson
+  # The LMS stores attendance durably; the signal only wakes a reconciliation pass.
+  - id: lesson
+    type: Wait
+    wait_for: { signal: lesson_recorded }
+    timeout: { after: P7D, on_timeout: attendance }
+    next: attendance
+  - id: attendance
+    type: ServiceTask
+    handler: reconcile_lesson_progress
+    next:
+      branches:
+        - { when: 'ctx.course_complete == true', next: exam }
+        - { when: 'ctx.needs_outreach == true', next: outreach }
+      default: schedule
+  - { id: outreach, type: ServiceTask, handler: contact_absent_student, next: lesson }
+  - id: exam
+    type: UserTask
+    form: exam_form
+    wait_for: { signal: exam_submitted }
+    timeout: { after: P7D, on_timeout: exam_reminder }
+    next: grade
+  - { id: exam_reminder, type: ServiceTask, handler: remind_final_exam, next: exam }
+  - id: grade
+    type: ServiceTask
+    handler: grade_final_exam
+    next:
+      branches:
+        - { when: 'ctx.exam_passed == true', next: certificate }
+      default: remedial
+  - { id: remedial, type: ServiceTask, handler: assign_remedial_lesson, next: lesson }
+  - { id: certificate, type: ServiceTask, handler: issue_certificate, next: complete }
+  - { id: complete, type: End, set_stage: graduated }
+  - { id: withdraw, type: ServiceTask, handler: release_seat_and_reconcile_tuition, next: withdrawn }
+  - { id: withdrawn, type: End, set_stage: withdrawn }

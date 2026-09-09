@@ -1,0 +1,33 @@
+# One instance per subscription billing period; the host owns the calendar.
+key: subscription_renewal
+name: Subscription renewal and dunning
+version: "1.0.0"
+status: active
+effective_from: 2020-01-01T00:00:00Z
+stages:
+  - { id: due, name: Due, is_initial: true }
+  - { id: renewed, name: Renewed, is_final: true }
+  - { id: suspended, name: Access suspended, is_final: true }
+signals: [billing_changed]
+forms: []
+nodes:
+  - { id: start, type: Start, next: charge }
+  - { id: charge, type: ServiceTask, handler: request_subscription_charge, next: reconcile }
+  - id: reconcile
+    type: ServiceTask
+    handler: reconcile_subscription_invoice
+    next:
+      branches:
+        - { when: 'ctx.invoice_paid == true', next: extend }
+        - { when: 'ctx.grace_expired == true', next: suspend }
+      default: remind
+  - { id: remind, type: ServiceTask, handler: send_billing_reminder, next: payment }
+  - id: payment
+    type: Wait
+    wait_for: { signal: billing_changed }
+    timeout: { after: P1D, on_timeout: reconcile }
+    next: reconcile
+  - { id: extend, type: ServiceTask, handler: extend_subscription_period, next: complete }
+  - { id: complete, type: End, set_stage: renewed }
+  - { id: suspend, type: ServiceTask, handler: suspend_unpaid_subscription, next: suspended }
+  - { id: suspended, type: End, set_stage: suspended }

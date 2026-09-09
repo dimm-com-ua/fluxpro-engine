@@ -1,0 +1,56 @@
+# Claim handling: evidence, adjuster decision, and settlement reconciliation.
+key: insurance_claim
+name: Insurance claim assessment
+version: "1.0.0"
+status: active
+effective_from: 2020-01-01T00:00:00Z
+stages:
+  - { id: opened, name: Opened, is_initial: true }
+  - { id: settled, name: Settled, is_final: true }
+  - { id: rejected, name: Rejected, is_final: true }
+signals: [evidence_uploaded, claim_approved, claim_rejected, settlement_changed]
+forms:
+  - { id: evidence_form, roles: [claimant] }
+  - { id: assessment_form, roles: [adjuster] }
+nodes:
+  - { id: start, type: Start, next: coverage }
+  - id: coverage
+    type: ServiceTask
+    handler: verify_policy_coverage
+    next:
+      branches:
+        - { when: 'ctx.covered == true', next: evidence }
+      default: reject
+  - id: evidence
+    type: UserTask
+    form: evidence_form
+    wait_for: { signal: evidence_uploaded }
+    timeout: { after: P7D, on_timeout: remind }
+    next: assess
+  - { id: remind, type: ServiceTask, handler: request_missing_evidence, next: evidence }
+  - id: assess
+    type: UserTask
+    form: assessment_form
+    wait_for: { signals: [claim_approved, claim_rejected] }
+    timeout: { after: P3D, on_timeout: escalate }
+    next:
+      branches:
+        - { when: 'ctx["_last_signal"] == "claim_approved"', next: payout }
+      default: reject
+  - { id: escalate, type: ServiceTask, handler: escalate_claim_review, next: assess }
+  - { id: payout, type: ServiceTask, handler: request_claim_settlement, next: reconcile }
+  - id: reconcile
+    type: ServiceTask
+    handler: reconcile_claim_settlement
+    next:
+      branches:
+        - { when: 'ctx.settlement_paid == true', next: complete }
+      default: settlement
+  - id: settlement
+    type: Wait
+    wait_for: { signal: settlement_changed }
+    timeout: { after: PT1H, on_timeout: reconcile }
+    next: reconcile
+  - { id: complete, type: End, set_stage: settled }
+  - { id: reject, type: ServiceTask, handler: record_claim_rejection, next: rejected }
+  - { id: rejected, type: End, set_stage: rejected }

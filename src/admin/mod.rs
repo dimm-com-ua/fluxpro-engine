@@ -1,3 +1,5 @@
+//! Paginated inspection and lease-aware queue maintenance for administration UIs.
+
 use crate::models::context_map::context_map::{ContextMap, ContextValue};
 use crate::models::id_field::IdField;
 use chrono::{DateTime, Utc};
@@ -15,21 +17,31 @@ pub use audit::*;
 const DEFAULT_PAGE_SIZE: i64 = 50;
 const MAX_PAGE_SIZE: i64 = 250;
 
+/// Administration lookup, context decoding, or database failure.
 #[derive(Debug, Error)]
 pub enum AdminError {
+    /// The requested administrative resource does not exist.
     #[error("requested Fluxpro resource was not found")]
     NotFound,
+    /// A stored context key is not a valid identifier.
     #[error("invalid context key '{0}'")]
     InvalidContextKey(String),
+    /// An administration database operation failed.
     #[error(transparent)]
     Database(#[from] sqlx::Error),
 }
 
+/// Result type returned by administration queries and queue maintenance.
 pub type AdminResult<T> = Result<T, AdminError>;
 
+/// Pagination request; offset is clamped to zero and limit to 1–250.
+///
+/// The default page starts at zero and contains up to 50 items.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct PageRequest {
+    /// Number of matching rows to skip; requests are clamped to zero.
     pub offset: i64,
+    /// Maximum rows in a page; administration requests are clamped to 1–250.
     pub limit: i64,
 }
 
@@ -51,186 +63,331 @@ impl PageRequest {
     }
 }
 
+/// A page of results with total count and normalized pagination parameters.
 #[derive(Debug, Clone, Serialize)]
 pub struct Page<T> {
+    /// Rows in this page.
     pub items: Vec<T>,
+    /// Total number of matching rows before pagination.
     pub total: i64,
+    /// Number of matching rows to skip; requests are clamped to zero.
     pub offset: i64,
+    /// Maximum rows in a page; administration requests are clamped to 1–250.
     pub limit: i64,
 }
 
+/// Optional text and status filters for stored process definitions.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ProcessDefinitionFilter {
+    /// Optional case-insensitive text search; blank input disables the filter.
     pub search: Option<String>,
+    /// Stored lifecycle status of the definition version.
     pub status: Option<String>,
 }
 
+/// Stored version metadata without the full workflow payload.
 #[derive(Debug, Clone, Serialize, FromRow)]
 pub struct ProcessDefinitionSummary {
+    /// Database row identity.
     pub uuid: Uuid,
+    /// UTC time when the row was created.
     pub created_at: DateTime<Utc>,
+    /// Logical process definition key shared across versions.
     pub key: String,
+    /// Normalized process definition version.
     pub version: String,
+    /// Insertion-order index for versions of the same process key.
     pub index_id: i32,
+    /// Stored lifecycle status of the definition version.
     pub status: String,
+    /// UTC time from which this definition can be selected.
     pub effective_from: DateTime<Utc>,
+    /// UTC time after which this definition is excluded from runtime selection.
     pub deprecated_at: Option<DateTime<Utc>>,
 }
 
+/// Stored version metadata, compiled JSON, and optional original source.
 #[derive(Debug, Clone, Serialize, FromRow)]
 pub struct ProcessDefinitionDetails {
+    /// Database row identity.
     pub uuid: Uuid,
+    /// UTC time when the row was created.
     pub created_at: DateTime<Utc>,
+    /// Logical process definition key shared across versions.
     pub key: String,
+    /// Normalized process definition version.
     pub version: String,
+    /// Insertion-order index for versions of the same process key.
     pub index_id: i32,
+    /// Stored lifecycle status of the definition version.
     pub status: String,
+    /// UTC time from which this definition can be selected.
     pub effective_from: DateTime<Utc>,
+    /// UTC time after which this definition is excluded from runtime selection.
     pub deprecated_at: Option<DateTime<Utc>>,
+    /// Human-readable notes supplied by the version metadata.
     pub version_comment: Option<String>,
+    /// Compiled workflow definition as JSON.
     pub definition: Value,
+    /// Original source text when provided during definition creation.
     pub source_definition: Option<String>,
 }
 
+/// Number of instances currently pointing at a definition node.
 #[derive(Debug, Clone, Serialize, FromRow)]
 pub struct ProcessNodeInstanceCount {
+    /// Workflow-local node identifier.
     pub node_id: String,
+    /// Number of instances currently assigned to this node.
     pub instance_count: i64,
 }
 
+/// Aggregated version and instance information for one process key.
 #[derive(Debug, Clone, Serialize, FromRow)]
 pub struct ProcessOverview {
+    /// Logical process definition key shared across versions.
     pub key: String,
+    /// Display name of the selected process definition.
     pub name: String,
+    /// Number of stored versions for this process key.
     pub versions_count: i64,
+    /// Version selected by the overview query for this process key.
     pub current_version: String,
+    /// Stored lifecycle status of the selected version.
     pub current_status: String,
+    /// Effective-from timestamp of the selected version.
     pub current_effective_from: DateTime<Utc>,
+    /// Optional deprecation timestamp of the selected version.
     pub current_deprecated_at: Option<DateTime<Utc>>,
+    /// Optional team or person responsible for the definition.
     pub owner: Option<String>,
+    /// Descriptive ISO 8601 service-level target; not enforced by the runtime.
     pub sla: Option<String>,
+    /// Human-readable notes supplied by the version metadata.
     pub version_comment: Option<String>,
+    /// Number of instances bound to the selected version.
     pub current_instance_count: i64,
+    /// Number of instances across all versions of this process key.
     pub total_instance_count: i64,
 }
 
+/// Optional search, definition, and derived-state filters for instances.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ProcessInstanceFilter {
+    /// Optional case-insensitive text search; blank input disables the filter.
     pub search: Option<String>,
+    /// Database identity of the bound process definition.
     pub process_definition_uuid: Option<Uuid>,
     /// `created`, `running`, or `completed`.
     pub state: Option<String>,
 }
 
+/// Instance identity and its current node and business stage.
 #[derive(Debug, Clone, Serialize, FromRow)]
 pub struct ProcessInstanceSummary {
+    /// Database row identity.
     pub uuid: Uuid,
+    /// UTC time when the row was created.
     pub created_at: DateTime<Utc>,
+    /// Database identity of the bound process definition.
     pub process_definition_uuid: Uuid,
+    /// Logical key shared by versions of the same process.
     pub process_key: String,
+    /// Version bound to this instance.
     pub process_version: String,
+    /// Application business identifier; distinct from the generated runtime token.
     pub process_id: String,
+    /// Generated runtime token used for signals and service operations.
     pub token: String,
+    /// Derived state exposed by the administration query.
     pub state: String,
+    /// Database identity of the currently assigned node.
     pub current_node_uuid: Option<Uuid>,
+    /// Workflow-local identifier of the currently assigned node.
     pub current_node_id: Option<String>,
+    /// Serialized type of the currently assigned node.
     pub current_node_type: Option<String>,
+    /// Current node visit identity; include it in signals that target this wait.
+    pub node_visit_id: Option<Uuid>,
+    /// True once this visit has accepted its closing signal or timeout.
+    pub wait_completed: bool,
+    /// Database identity of the current business stage.
     pub current_stage_uuid: Option<Uuid>,
+    /// Definition-local identifier of the current stage.
     pub current_stage_id: Option<String>,
+    /// Display name of the current business stage.
     pub current_stage_name: Option<String>,
+    /// Persisted explanation for the current stage, when available.
     pub current_stage_reason: Option<String>,
 }
 
+/// Persisted stage transition with its timestamp and context snapshot.
 #[derive(Debug, Clone, Serialize, FromRow)]
 pub struct ProcessStageHistoryEntry {
+    /// Database row identity.
     pub uuid: Uuid,
+    /// Database identity of the stage recorded by this history entry.
     pub stage_uuid: Option<Uuid>,
+    /// Definition-local identifier of the recorded stage.
     pub stage_id: Option<String>,
+    /// Display name of the recorded stage.
     pub stage_name: Option<String>,
+    /// Optional explanation associated with this stage assignment.
     pub reason: Option<String>,
+    /// UTC time when the row was created.
     pub created_at: DateTime<Utc>,
+    /// JSON context snapshot recorded with the stage transition.
     pub context: Value,
 }
 
+/// Instance summary, current node, typed context, and stage history.
 #[derive(Debug, Clone, Serialize)]
 pub struct ProcessInstanceDetails {
+    /// Instance identity and its current node and stage metadata.
     #[serde(flatten)]
     pub summary: ProcessInstanceSummary,
+    /// Compiled JSON of the currently assigned node.
     pub current_node: Option<Value>,
+    /// Current typed context flattened by variable name.
     pub context: ContextMap,
+    /// Stored context variables including their database IDs and scopes.
     pub context_variables: Vec<ProcessContextVariable>,
+    /// Recorded stage transitions for this instance.
     pub stage_history: Vec<ProcessStageHistoryEntry>,
 }
 
+/// A scoped variable with its database identity and typed value.
 #[derive(Debug, Clone, Serialize)]
 pub struct ProcessContextVariable {
+    /// Database row identity.
     pub uuid: Uuid,
+    /// Variable namespace; runtime writes normally use `_`.
     pub scope: String,
+    /// Context variable name within its stored scope.
     pub name: IdField,
+    /// Typed value of the stored context variable.
     pub value: ContextValue,
 }
 
+/// Optional severity and event-type filters for execution history.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ExecutionLogFilter {
+    /// Execution event severity.
     pub level: Option<String>,
+    /// Stable event category, such as `node.entered`.
     pub event_type: Option<String>,
 }
 
+/// Stored execution event with diagnostic and queue-attempt metadata.
 #[derive(Debug, Clone, Serialize, FromRow)]
 pub struct ExecutionLogEntry {
+    /// Database row identity.
     pub uuid: Uuid,
+    /// UTC time when the row was created.
     pub created_at: DateTime<Utc>,
+    /// Execution event severity.
     pub level: String,
+    /// Stable event category, such as `node.entered`.
     pub event_type: String,
+    /// Component that emitted the event.
     pub source: String,
+    /// Human-readable event description.
     pub message: String,
+    /// Workflow-local node identifier.
     pub node_id: Option<String>,
+    /// Registered handler identifier, when applicable.
     pub handler_id: Option<String>,
+    /// Database identity of the associated queue item.
     pub queue_task_uuid: Option<Uuid>,
+    /// Queue claim count associated with this event.
     pub attempt: Option<i32>,
+    /// Machine-readable error category, when available.
     pub error_kind: Option<String>,
+    /// Error description, when available.
     pub error_message: Option<String>,
+    /// Additional diagnostic details for this event or issue.
     pub details: Value,
 }
 
+/// Accepted signal submission recorded before queued delivery.
 #[derive(Debug, Clone, Serialize, FromRow)]
 pub struct SignalHistoryEntry {
+    /// Database row identity.
     pub uuid: Uuid,
+    /// UTC time when the row was created.
     pub created_at: DateTime<Utc>,
+    /// Runtime instance token stored under the legacy `process_id` column name.
     pub process_id: String,
+    /// Name of the admitted signal.
     pub signal_name: String,
+    /// Signal context payload recorded at admission time.
     pub payload: Value,
 }
 
+/// Optional filter for a derived queue availability state.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct QueueTaskFilter {
     /// `ready`, `scheduled`, or `leased`.
     pub state: Option<String>,
 }
 
+/// Administrative view of a task, its payload, and its lease.
 #[derive(Debug, Clone, Serialize, FromRow)]
 pub struct QueueTaskSummary {
+    /// Database row identity.
     pub uuid: Uuid,
+    /// UTC time when the row was created.
     pub created_at: DateTime<Utc>,
+    /// Earliest UTC time at which the task may be claimed.
     pub run_after: DateTime<Utc>,
+    /// Number of queue claims, including the current attempt.
     pub attempts: i32,
+    /// Derived state exposed by the administration query.
     pub state: String,
+    /// Lease ownership key; an empty string indicates an unleased task.
     pub lock_key: String,
+    /// UTC time at which the current lease was acquired.
     pub locked_at: Option<DateTime<Utc>>,
+    /// UTC time at which the current task lease expires.
     pub lease_expires_at: Option<DateTime<Utc>>,
+    /// Serialized or decoded queue work payload.
     pub task: Value,
 }
 
+/// Framework-independent administration queries and lease-aware queue operations.
 #[derive(Clone)]
 pub struct FluxproAdminService {
     pool: PgPool,
 }
 
 impl FluxproAdminService {
+    /// Uses an existing pool for administration queries.
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
 
+    /// Reads the unresolved durable incident for an instance.
+    pub async fn get_open_incident(
+        &self,
+        token: &IdField,
+    ) -> anyhow::Result<Option<crate::db_service::incidents::ProcessIncident>> {
+        crate::db_service::FluxproDbServiceImpl::new(self.pool.clone())
+            .get_open_incident(token)
+            .await
+    }
+
+    /// Explicitly resumes the specified incident; duplicate or stale commands return false.
+    pub async fn resume_instance(
+        &self,
+        token: &IdField,
+        incident_id: Uuid,
+    ) -> anyhow::Result<bool> {
+        crate::db_service::FluxproDbServiceImpl::new(self.pool.clone())
+            .resume_instance(token, incident_id)
+            .await
+    }
+
+    /// Returns a filtered page of stored definition versions.
     pub async fn list_process_definitions(
         &self,
         filter: ProcessDefinitionFilter,
@@ -272,6 +429,7 @@ impl FluxproAdminService {
         })
     }
 
+    /// Loads one stored version, including compiled JSON and original source.
     pub async fn get_process_definition(
         &self,
         uuid: Uuid,
@@ -287,6 +445,9 @@ impl FluxproAdminService {
         .ok_or(AdminError::NotFound)
     }
 
+    /// Loads a version by key, prioritizing active status and then insertion index.
+    ///
+    /// Unlike runtime selection, this administration lookup does not filter dates.
     pub async fn get_current_process_definition_by_key(
         &self,
         key: &str,
@@ -307,6 +468,7 @@ impl FluxproAdminService {
         .ok_or(AdminError::NotFound)
     }
 
+    /// Counts instances currently assigned to each node of a definition.
     pub async fn get_process_node_instance_counts(
         &self,
         process_definition_uuid: Uuid,
@@ -324,6 +486,7 @@ impl FluxproAdminService {
         .await?)
     }
 
+    /// Returns per-key summaries with version and instance counts.
     pub async fn list_process_overviews(
         &self,
         search: Option<String>,
@@ -353,6 +516,7 @@ impl FluxproAdminService {
         })
     }
 
+    /// Returns filtered instances with derived state, node, and stage information.
     pub async fn list_process_instances(
         &self,
         filter: ProcessInstanceFilter,
@@ -396,6 +560,7 @@ impl FluxproAdminService {
         })
     }
 
+    /// Loads an instance with its context, current node, and stage history.
     pub async fn get_process_instance(&self, uuid: Uuid) -> AdminResult<ProcessInstanceDetails> {
         let summary = sqlx::query_as::<_, ProcessInstanceSummary>(&format!(
             "select * from ({INSTANCE_SELECT}) instance_admin where uuid = $1"
@@ -461,6 +626,7 @@ impl FluxproAdminService {
         })
     }
 
+    /// Returns a filtered page of execution events for an instance.
     pub async fn list_process_instance_logs(
         &self,
         process_instance_uuid: Uuid,
@@ -505,6 +671,7 @@ impl FluxproAdminService {
         })
     }
 
+    /// Returns a page of admitted signals and their typed payloads.
     pub async fn list_process_instance_signals(
         &self,
         process_instance_uuid: Uuid,
@@ -541,6 +708,7 @@ impl FluxproAdminService {
         })
     }
 
+    /// Returns a filtered page of ready, scheduled, or leased tasks across instances.
     pub async fn list_queue_tasks(
         &self,
         filter: QueueTaskFilter,
@@ -591,6 +759,8 @@ impl FluxproAdminService {
         let task = sqlx::query_scalar::<_, Uuid>(
             r#"select uuid from fluxpro.queue_runner
                where uuid = $1 and (lock_key = '' or locked_by is null or locked_by < now())
+               and not exists (select 1 from fluxpro.process_incident where task_uuid=$1 and resolved_at is null)
+               and not exists (select 1 from fluxpro.process_instance where recovery_task_uuid=$1)
                for update"#,
         )
         .bind(uuid)
@@ -630,6 +800,7 @@ const INSTANCE_SELECT: &str = r#"
            i.process_id,
            i.token,
            case
+               when i.execution_state = 'suspended' then 'suspended'
                when i.current_node_ref is null then 'created'
                when lower(coalesce(n.definition->>'type', '')) = 'end' then 'completed'
                else 'running'
@@ -637,6 +808,8 @@ const INSTANCE_SELECT: &str = r#"
            i.current_node_ref as current_node_uuid,
            n.node_id as current_node_id,
            n.definition->>'type' as current_node_type,
+           i.node_visit_id,
+           i.wait_completed,
            i.current_stage as current_stage_uuid,
            s.stage_id as current_stage_id,
            s.name as current_stage_name,
@@ -653,6 +826,9 @@ const QUEUE_SELECT: &str = r#"
            run_after,
            attempts,
            case
+               when exists (select 1 from fluxpro.process_instance i where
+                   i.token=coalesce(task #>> '{process_node,process_token}',task #>> '{ProcessEvent,process_token}',task #>> '{ProcessSignal,process_token}')
+                   and i.execution_state='suspended') then 'suspended'
                when lock_key <> '' and locked_by >= now() then 'leased'
                when run_after > now() then 'scheduled'
                else 'ready'

@@ -1,3 +1,5 @@
+//! Heuristic process health summaries derived from execution history and node age.
+
 use super::{
     AdminResult, FluxproAdminService, INSTANCE_SELECT, Page, PageRequest, normalize_filter,
 };
@@ -7,15 +9,20 @@ use serde_json::Value;
 use sqlx::FromRow;
 use uuid::Uuid;
 
+/// Derived process health classification for an administration UI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AuditSeverity {
+    /// No incidents or stalled-node symptoms were detected.
     Healthy,
+    /// A recoverable or unusual condition.
     Warning,
+    /// A serious failure or detected stalled process.
     Critical,
 }
 
 impl AuditSeverity {
+    /// Returns the normalized string representation.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Healthy => "healthy",
@@ -25,37 +32,62 @@ impl AuditSeverity {
     }
 }
 
+/// Optional text search for process health summaries.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ProcessAuditFilter {
+    /// Optional case-insensitive text search; blank input disables the filter.
     pub search: Option<String>,
 }
 
+/// A recorded incident or heuristic indication of a stalled process.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProcessAuditIssue {
+    /// Stable issue category, such as `process.stuck`.
     pub kind: String,
+    /// Short display title describing the detected issue.
     pub title: String,
+    /// Additional diagnostic details for this event or issue.
     pub details: String,
+    /// UTC time associated with the issue, when known.
     pub occurred_at: Option<DateTime<Utc>>,
 }
 
+/// Process health derived from event counts and the age of its current node.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProcessAuditSummary {
+    /// Database identity of the owning process instance.
     pub process_instance_uuid: Uuid,
+    /// Logical key shared by versions of the same process.
     pub process_key: String,
+    /// Version bound to this instance.
     pub process_version: String,
+    /// Application business identifier; distinct from the generated runtime token.
     pub process_id: String,
+    /// Generated runtime token used for signals and service operations.
     pub token: String,
+    /// Derived state exposed by the administration query.
     pub state: String,
+    /// Workflow-local identifier of the currently assigned node.
     pub current_node_id: Option<String>,
+    /// Serialized type of the currently assigned node.
     pub current_node_type: Option<String>,
+    /// Display name of the current business stage.
     pub current_stage_name: Option<String>,
+    /// UTC time when the row was created.
     pub created_at: DateTime<Utc>,
+    /// Time of the latest recorded entry into the current node.
     pub current_node_entered_at: Option<DateTime<Utc>>,
+    /// Latest activity timestamp observed by the audit query.
     pub last_activity_at: DateTime<Utc>,
+    /// Number of warning events considered by the audit query.
     pub warning_count: i64,
+    /// Number of error and critical events considered by the audit query.
     pub error_count: i64,
+    /// Number of recorded incidents plus any detected stalled-node issue.
     pub incident_count: i64,
+    /// Highest health severity derived for this process.
     pub severity: AuditSeverity,
+    /// Recorded or inferred issues explaining the health classification.
     pub issues: Vec<ProcessAuditIssue>,
 }
 
@@ -83,6 +115,7 @@ struct ProcessAuditRow {
 }
 
 impl FluxproAdminService {
+    /// Returns process health summaries using log severity and node-age heuristics.
     pub async fn list_process_audits(
         &self,
         filter: ProcessAuditFilter,
@@ -241,6 +274,7 @@ fn classify_audit_row(row: ProcessAuditRow) -> ProcessAuditSummary {
     }
 }
 
+// Node-age thresholds are diagnostic heuristics, not workflow deadlines.
 fn detect_stuck_issue(row: &ProcessAuditRow) -> Option<ProcessAuditIssue> {
     if row.state == "completed" {
         return None;

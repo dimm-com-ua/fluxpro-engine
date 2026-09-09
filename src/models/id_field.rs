@@ -1,3 +1,5 @@
+//! Validated identifiers for definitions, nodes, signals, and instance tokens.
+
 use rand::Rng;
 use rand::distributions::Alphanumeric;
 use regex::Regex;
@@ -6,46 +8,20 @@ use serde::{Deserialize, Deserializer, Serialize};
 use std::fmt;
 use uuid::Uuid;
 
-/// A newtype wrapper for a string, representing an identifier field.
+/// A string identifier serialized as a plain JSON or YAML string.
 ///
-/// The `IdField` struct is a lightweight wrapper around a `String` type
-/// used to designate it as an identifier in the context where it's used.
-/// It derives several useful traits including `Debug`, `Clone`, `PartialEq`,
-/// `Eq`, `Hash`, and `Default`, making it compatible with hashing,
-/// serialization, equality checks, and default initialization.
+/// [`Self::new`] and deserialization enforce `[a-zA-Z_][a-zA-Z0-9_]*`.
+/// The derived default is empty and bypasses validation; use `new` for input.
 ///
-/// # Derivable Traits
-///
-/// - `Debug`: Allows formatting the `id_field` for debugging purposes.
-/// - `Clone`: Enables creating duplicate instances of the `id_field`.
-/// - `PartialEq` and `Eq`: Enables equality comparisons between `id_field` values.
-/// - `Hash`: Makes the `id_field` usable in hashed collections like `HashMap` or `HashSet`.
-/// - `Default`: Provides a default value of `IdField` which initializes its inner string as an empty string.
-///
-/// # Serialization
-///
-/// The `#[serde(transparent)]` attribute indicates that during serialization and
-/// deserialization (e.g., when using Serde), the wrapped string is treated
-/// transparently as if the wrapper type did not exist.
-/// For example, `IdField::new("example".to_string())` would serialize just as `"example"`.
-///
-/// # Example Usage
+/// # Examples
 ///
 /// ```
 /// use fluxpro_engine::models::id_field::IdField;
-/// use serde_json;
 ///
 /// let id = IdField::new("example_id").unwrap();
-/// let serialized = serde_json::to_string(&id).unwrap();
-/// assert_eq!(serialized, "\"example_id\"");
-///
-/// let deserialized: IdField = serde_json::from_str(&serialized).unwrap();
-/// assert_eq!(id, deserialized);
+/// assert_eq!(serde_json::to_string(&id).unwrap(), "\"example_id\"");
+/// assert!(IdField::new("invalid-id").is_err());
 /// ```
-///
-/// This struct is useful for clearly indicating fields that represent
-/// identifiers while still leveraging the underlying capabilities of
-/// `String`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Default)]
 #[serde(transparent)]
 pub struct IdField(String);
@@ -61,6 +37,11 @@ fn random_string(len: usize) -> String {
 }
 
 impl IdField {
+    /// Validates a string identifier.
+    ///
+    /// # Errors
+    ///
+    /// Returns a formatting error when the input does not match the identifier grammar.
     pub fn new(id: impl Into<String>) -> Result<Self, Err> {
         let re = Regex::new(r"^[a-zA-Z_][a-zA-Z0-9_]*$").unwrap();
         let id = id.into();
@@ -75,6 +56,7 @@ impl IdField {
         }
     }
 
+    /// Generates an identifier from six random letters and a UUID suffix.
     pub fn generate() -> Self {
         let random_chars = random_string(6);
         Self(format!(
@@ -84,13 +66,18 @@ impl IdField {
         ))
     }
 
+    /// Generates an alphabetic identifier of the requested length.
+    ///
+    /// A zero length produces an empty value and bypasses identifier validation.
     pub fn with_length(length: usize) -> Self {
         Self(random_string(length))
     }
+    /// Generates a six-letter identifier without a uniqueness guarantee.
     pub fn short() -> Self {
         Self(random_string(6))
     }
 
+    /// Borrows the underlying identifier string.
     pub fn get_id(&self) -> &str {
         &self.0
     }

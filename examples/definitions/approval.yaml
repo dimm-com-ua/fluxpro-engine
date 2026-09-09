@@ -1,0 +1,75 @@
+# Complete workflow covering all six node types.
+key: approval_demo
+name: Approval with external confirmation
+version: "1.0.0"
+status: active
+effective_from: 2026-01-01T00:00:00Z
+metadata:
+  owner: workflow_team
+  comment: Demonstrates service execution, form input, routing, and a technical wait.
+stages:
+  - id: created
+    name: Created
+    is_initial: true
+  - id: reviewing
+    name: Reviewing
+  - id: completed
+    name: Completed
+    is_final: true
+signals: [approved, rejected, confirmed]
+forms:
+  - id: approval_form
+    roles: [reviewer]
+nodes:
+  - id: start
+    type: Start
+    set_stage: created
+    next: prepare
+  - id: prepare
+    type: ServiceTask
+    handler: prepare_request
+    args:
+      channel: { string: demo }
+    retries:
+      max: 2
+      backoff: PT5S
+    next: review
+    on_error:
+      next: failed
+  - id: review
+    type: UserTask
+    form: approval_form
+    set_stage: reviewing
+    wait_for:
+      signals: [approved, rejected]
+    timeout:
+      after: PT15M
+      on_timeout: expired
+    next: decision
+  - id: decision
+    type: Gateway
+    gateway: XOR
+    branches:
+      - when: 'ctx["_last_signal"] == "approved"'
+        next: await_confirmation
+    next: rejected_end
+  - id: await_confirmation
+    type: Wait
+    wait_for:
+      signal: confirmed
+    timeout:
+      after: PT1H
+      on_timeout: expired
+    next: completed_end
+  - id: completed_end
+    type: End
+    set_stage: completed
+  - id: rejected_end
+    type: End
+    set_stage: completed
+  - id: expired
+    type: End
+    set_stage: completed
+  - id: failed
+    type: End
+    set_stage: completed

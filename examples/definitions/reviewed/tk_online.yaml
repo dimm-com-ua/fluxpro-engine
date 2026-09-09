@@ -1,0 +1,371 @@
+key: tk_online
+name: "ТК Онлайн"
+version: "v0.0.8"
+status: active
+effective_from: "2026-01-01T00:00:00Z"
+deprecated_at: "2026-12-31T00:00:00Z"
+
+metadata:
+    owner: "credit-core"
+    sla: "PT30M"
+    comment: "Start the first credit-info escalation timer only after the client opens the information page."
+
+stages:
+  - id: "created"
+    name: "Invitation created"
+    is_initial: true
+  - id: "invitation_sent"
+    name: "Invitation sent"
+  - id: "credit_info"
+    name: "Credit info"
+  - id: "identification"
+    name: "Client Identification"
+  - id: "signing"
+    name: "Signing documents"
+  - id: signing_wait
+    name: "Waiting for the docs to sign them by KEP"
+  - id: "done_ok"
+    name: "Done ok"
+  - id: "rejected"
+    name: "Rejected"
+  - id: "archive"
+    name: "Archive"
+
+signals:
+  - name: "credit_info_opened"
+  - name: "terms_viewed"
+  - name: "bankid_ok"
+  - name: "otp_verified"
+  - name: "docs_arrived"
+  - name: "stop_invitation"
+  - name: "operator_credit_info_resolution"
+  - name: "operator_identification_resolution"
+  - name: "operator_signing_resolution"
+
+forms:
+  - id: client_credit_info
+    roles: ["client"]
+  - id: support_credit_info
+    roles: ["manager", "admin"]
+  - id: signing
+    roles: ["client"]
+  - id: support_signing
+    roles: ["manager", "admin"]
+  - id: identification
+    roles: ["client"]
+  - id: support_identification
+    roles: ["manager", "admin"]
+  - id: signing_wait
+    roles: ["client"]
+  - id: done_form
+    roles: ["client"]
+
+special_handlers:
+  on_stage_change:
+    handler: set_stage
+  on_show_form:
+    handler: open_form
+  on_hide_form:
+    handler: close_form
+  on_process_complete:
+    handler: close_all_support_processes
+
+escalations:
+  - topic: credit_info_escalation
+    actions:
+      - id: reject_process
+        operator_action: reject
+        label: "Відхілити заявку"
+        hint: "Процес буде завершено зі статусом rejected"
+        kind: Dangerous
+        emit_signal: operator_credit_info_resolution
+  - topic: identification_escalation
+    actions:
+      - id: back_to_credit_information
+        operator_action: back_to_credit_information
+        label: "Повернути до Інформації по кредиту"
+        hint: "Процес буде повернуто до сторінки перегляду умов"
+        kind: Secondary
+        emit_signal: operator_identification_resolution
+      - id: reject_process
+        operator_action: reject
+        label: "Відхілити заявку"
+        hint: "Процес буде завершено зі статусом rejected"
+        kind: Dangerous
+        emit_signal: operator_identification_resolution
+  - topic: signing_escalation
+    actions:
+      - id: back_to_credit_information
+        operator_action: back_to_credit_information
+        label: "Повернути до Інформації по кредиту"
+        hint: "Процес буде повернуто до сторінки перегляду умов"
+        kind: Secondary
+        emit_signal: operator_signing_resolution
+      - id: back_to_bank_id_information
+        operator_action: back_to_bank_id_information
+        label: "Повернути до Ідентифікації"
+        hint: "Процес буде повернуто до сторінки Ідентифікації"
+        kind: Secondary
+        emit_signal: operator_signing_resolution
+      - id: reject_process
+        operator_action: reject
+        label: "Відхілити заявку"
+        hint: "Процес буде завершено зі статусом rejected"
+        kind: Dangerous
+        emit_signal: operator_signing_resolution
+
+nodes:
+  - id: start
+    type: Start
+    next: send_token_to_erp
+    set_stage: created
+
+  - id: send_token_to_erp
+    type: ServiceTask
+    handler: send_token_to_erp_handler
+    next: enqueue_online_partner_documents
+
+  - id: enqueue_online_partner_documents
+    type: ServiceTask
+    handler: enqueue_online_partner_documents
+    next: send_invitation
+
+  - id: send_invitation
+    type: ServiceTask
+    handler: send_invitation_handler
+    set_stage: invitation_sent
+    next: init_params
+
+  - id: init_params
+    type: ServiceTask
+    handler: "init_params"
+    next: credit_info_open
+
+  # The invitation may remain unopened indefinitely. The actual escalation
+  # timer starts only after the client opens this page and emits
+  # `credit_info_opened`.
+  - id: credit_info_open
+    type: UserTask
+    form: client_credit_info
+    wait_for:
+      signals: ["credit_info_opened"]
+    next: credit_info
+    set_stage: credit_info
+
+  - id: credit_info
+    type: UserTask
+    form: client_credit_info
+    wait_for:
+      signals: ["terms_viewed"]
+    timeout: { after: "PT3M", on_timeout: credit_info_escalation }
+    next: close_ticket_credit_info
+    set_stage: credit_info
+
+  - id: credit_info_escalation
+    type: ServiceTask
+    handler: "create_support_ticket"
+    args:
+      topic: { id_field: "credit_info_escalation" }
+      lifetime: { string: "PT24H" }
+    next: credit_info_support_wait
+
+  - id: credit_info_support_wait
+    type: UserTask
+    form: "support_credit_info"
+    wait_for:
+      signals: [ "terms_viewed", "operator_credit_info_resolution" ]
+    timeout: { after: "PT24H", on_timeout: "finalize_reject" }
+    next: credit_info_route
+
+  - id: credit_info_route
+    type: Gateway
+    gateway: XOR
+    branches:
+      - when: "ctx['_last_signal'] == 'terms_viewed'"
+        next: close_ticket_credit_info
+      - when: "ctx['_last_signal'] == 'operator_credit_info_resolution' && ctx.operator_action == 'reject'"
+        next: finalize_reject
+    next: finalize_reject
+
+  - id: close_ticket_credit_info
+    type: ServiceTask
+    handler: "close_support_ticket"
+    next: bankid
+
+  - id: bankid
+    type: UserTask
+    set_stage: identification
+    form: identification
+    wait_for:
+      signals: [ "bankid_ok" ]
+    timeout: { after: "PT1M", on_timeout: client_identification_escalation }
+    next: bankid_route
+
+  - id: client_identification_escalation
+    type: ServiceTask
+    handler: create_support_ticket
+    args:
+      topic: { id_field: "identification_escalation" }
+      lifetime: { string: "PT24H" }
+    next: identification_support_wait
+
+  - id: identification_support_wait
+    type: UserTask
+    form: support_identification
+    wait_for:
+      signals: [ "bankid_ok", "operator_identification_resolution"]
+    timeout:
+      after: "PT24H"
+      on_timeout: finalize_reject
+    next: bankid_route
+
+  - id: bankid_route
+    type: Gateway
+    gateway: XOR
+    branches:
+      - when: "ctx['_last_signal'] == 'bankid_ok'"
+        next: close_ticket_identification
+      - when: "ctx['_last_signal'] == 'operator_identification_resolution' && ctx.operator_action == 'back_to_credit_information'"
+        next: close_ticket_return_to_credit_info
+      - when: "ctx['_last_signal'] == 'operator_identification_resolution' && ctx.operator_action == 'reject'"
+        next: finalize_reject
+    next: finalize_reject
+
+  - id: close_ticket_return_to_credit_info
+    type: ServiceTask
+    handler: close_support_ticket
+    next: credit_info
+
+  - id: close_ticket_identification
+    type: ServiceTask
+    handler: close_support_ticket
+    next: send_bank_id_data_to_erp
+
+  - id: send_bank_id_data_to_erp
+    type: ServiceTask
+    handler: send_bank_id_data_to_erp_handler
+    next: sign_otp_send
+
+  - id: sign_otp_send
+    type: ServiceTask
+    handler: "sign_otp_send"
+    retries: { max: 3, backoff: "PT5S" }
+    next: sign_otp_wait
+    on_error:
+      next: "on_error"
+    set_stage: signing
+
+  - id: sign_otp_wait
+    type: UserTask
+    form: signing
+    wait_for:
+      signals: [ "otp_verified" ]
+    timeout: { after: "PT5M", on_timeout: signing_escalation }
+    next: signing_route
+
+  - id: signing_escalation
+    type: ServiceTask
+    handler: create_support_ticket
+    args:
+      topic: { id_field: signing_escalation }
+      lifetime: { string: "PT24H" }
+    next: signing_escalation_wait
+
+  - id: signing_escalation_wait
+    type: UserTask
+    form: support_signing
+    wait_for:
+      signals: [ "otp_verified", "operator_signing_resolution" ]
+    timeout:
+      after: "PT24H"
+      on_timeout: finalize_reject
+    next:
+      signing_route
+
+  - id: signing_route
+    type: Gateway
+    gateway: XOR
+    branches:
+      - when: "ctx['_last_signal'] == 'otp_verified'"
+        next: close_ticket_otp_then_send_otp_to_erp
+      - when: "ctx['_last_signal'] == 'operator_signing_resolution' && ctx.operator_action == 'back_to_credit_information'"
+        next: close_ticket_return_to_credit_info
+      - when: "ctx['_last_signal'] == 'operator_signing_resolution' && ctx.operator_action == 'back_to_bank_id_information'"
+        next: close_ticket_return_to_identification
+      - when: "ctx['_last_signal'] == 'operator_signing_resolution' && ctx.operator_action == 'reject'"
+        next: finalize_reject
+    next: finalize_reject
+
+  - id: close_ticket_otp_then_send_otp_to_erp
+    type: ServiceTask
+    handler: close_support_ticket
+    next: send_otp_to_erp
+
+  - id: close_ticket_return_to_identification
+    type: ServiceTask
+    handler: close_support_ticket
+    next: bankid
+
+  - id: send_otp_to_erp
+    type: ServiceTask
+    handler: send_otp_to_erp_handler
+    on_error:
+      next: on_error
+    next: wait_documents_to_sign
+
+  - id: wait_documents_to_sign
+    type: UserTask
+    form: signing_wait
+    set_stage: signing_wait
+    wait_for:
+      signals: [ "docs_arrived", "stop_invitation" ]
+    next: signing_wait_route
+
+  - id: signing_wait_route
+    type: Gateway
+    gateway: XOR
+    branches:
+      - when: "ctx['_last_signal'] == 'docs_arrived'"
+        next: finalize_success
+      - when: "ctx['_last_signal'] == 'stop_invitation'"
+        next: on_error
+    next: on_error
+
+  - id: finalize_success
+    type: ServiceTask
+    handler: close_all_support_processes
+    next: sign_docs_by_kep_and_sent_to_erp
+
+  - id: sign_docs_by_kep_and_sent_to_erp
+    type: ServiceTask
+    handler: sign_docs_and_send_to_erp_handler
+    on_error:
+      next: "on_error"
+    next: end_success
+
+  - id: on_error
+    type: ServiceTask
+    handler: "stop_order"
+    args:
+      reason: { string: "process_stopped" }
+    next: finalize_reject
+
+  - id: finalize_reject
+    type: ServiceTask
+    handler: "close_all_support_processes"
+    next: stop_order
+
+  - id: stop_order
+    type: ServiceTask
+    handler: "stop_order"
+    args:
+      reason: { string: "rejected_by_process" }
+    next: end_reject
+
+  - id: end_reject
+    type: End
+    set_stage: rejected
+
+  - id: end_success
+    type: End
+    set_stage: done_ok

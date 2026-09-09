@@ -1,8 +1,25 @@
+//! Normalized three-component process versions with numeric ordering.
+
 use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt::Display;
 use std::str::FromStr;
 
+/// A normalized `major.minor.patch` version with numeric comparison.
+///
+/// Input may start with `v`; serialization removes that prefix. Prerelease and
+/// build suffixes are not accepted.
+///
+/// # Examples
+///
+/// ```
+/// use fluxpro_engine::models::version_id::VersionId;
+///
+/// let version = VersionId::new("v1.10.0").unwrap();
+/// assert_eq!(version.as_str(), "1.10.0");
+/// assert!(version > VersionId::new("1.2.9").unwrap());
+/// assert!(VersionId::new("1.0.0-beta").is_err());
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct VersionId {
     raw: String,
@@ -12,6 +29,11 @@ pub struct VersionId {
 }
 
 impl VersionId {
+    /// Parses an optional `v` prefix and three unsigned 32-bit version components.
+    ///
+    /// # Errors
+    ///
+    /// Rejects malformed versions and components that overflow `u32`.
     pub fn new<S: AsRef<str>>(id: S) -> Result<Self, String> {
         let re = Regex::new(r"^v?(\d+)\.(\d+)\.(\d+)$").unwrap();
         let s = id.as_ref();
@@ -44,18 +66,22 @@ impl VersionId {
         })
     }
 
+    /// Returns the major version component.
     #[inline]
     pub fn major(&self) -> u32 {
         self.major
     }
+    /// Returns the minor version component.
     #[inline]
     pub fn minor(&self) -> u32 {
         self.minor
     }
+    /// Returns the patch version component.
     #[inline]
     pub fn patch(&self) -> u32 {
         self.patch
     }
+    /// Returns the normalized string representation.
     #[inline]
     pub fn as_str(&self) -> &str {
         &self.raw

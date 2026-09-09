@@ -1,0 +1,37 @@
+[package]
+name = "fluxpro-editor"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Leptos components for visually authoring FluxPro workflows"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/dimm-com-ua/fluxpro-engine"
+readme = "README.md"
+
+[features]
+default = []
+csr = ["leptos/csr"]
+hydrate = ["leptos/hydrate"]
+ssr = ["leptos/ssr"]
+
+[dependencies]
+fluxpro-engine = { version = "0.1.0", path = "../..", default-features = false }
+leptos = { version = "0.8.20", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+web-sys = { version = "0.3", features = ["DomRect", "DataTransfer", "File", "FileList", "HtmlInputElement", "PointerEvent", "WheelEvent"] }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+
+# Enable browser entropy for the engine's UUID and rand dependencies only on WASM.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+uuid = { version = "1", features = ["js"] }
+getrandom = { version = "0.2", features = ["js"] }
+
+[[bin]]
+name = "editor-demo"
+path = "demo/main.rs"
+required-features = ["csr"]

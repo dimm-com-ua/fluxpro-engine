@@ -1,3 +1,5 @@
+//! Queue consumption with per-task heartbeats and bounded worker concurrency.
+
 use crate::engine::fluxpro_handlers::FluxproHandlersContainer;
 use crate::engine::fluxpro_runner::config::RunnerConfig;
 use crate::engine::fluxpro_runner::shutdown::Shutdown;
@@ -15,6 +17,7 @@ use tokio::sync::{Notify, watch};
 use tokio::task::JoinSet;
 use tokio::time::{Instant, MissedTickBehavior, interval_at, sleep};
 
+/// Concurrent queue consumer that renews leases and drains workers on shutdown.
 #[derive(Clone)]
 pub struct EngineRunner {
     service: Arc<dyn FluxproService + Send + Sync>,
@@ -23,6 +26,7 @@ pub struct EngineRunner {
 }
 
 impl EngineRunner {
+    /// Builds a runner using the supplied service, notifier, and worker settings.
     pub fn new(
         service: Arc<dyn FluxproService + Send + Sync>,
         queue_wakeup: Arc<Notify>,
@@ -35,6 +39,12 @@ impl EngineRunner {
         }
     }
 
+    /// Processes queued work until shutdown, then waits for active workers.
+    ///
+    /// # Errors
+    ///
+    /// Rejects zero concurrency and invalid heartbeat/lease timing. Individual
+    /// worker failures are logged; their remaining leases can later expire.
     pub async fn run_until_stopped(&self, shutdown: Shutdown) -> anyhow::Result<()> {
         anyhow::ensure!(self.cfg.concurrency > 0, "runner concurrency must be > 0");
         anyhow::ensure!(
@@ -66,6 +76,9 @@ impl EngineRunner {
             }
 
             let lock_key = IdField::generate();
+            // A monotonic deadline measured before dequeue is conservative and
+            // does not depend on clock agreement between the host and PostgreSQL.
+            let initial_deadline = Instant::now() + Duration::from_millis(self.cfg.task_lease_ms);
 
             select! {
                 _ = rx.changed() => { if *rx.borrow() { break; } }
@@ -82,6 +95,7 @@ impl EngineRunner {
                                 container,
                                 heartbeat_interval_ms,
                                 task_lease_ms,
+                                initial_deadline,
                             ));
                         }
                         Ok(None) => {
@@ -194,6 +208,7 @@ async fn run_one(
     container: Arc<FluxproHandlersContainer>,
     heartbeat_interval_ms: u64,
     task_lease_ms: u64,
+    initial_deadline: Instant,
 ) -> anyhow::Result<()> {
     let task_id = task.uuid;
     let lock_key = task.lock_key.clone();
@@ -224,11 +239,17 @@ async fn run_one(
 
     let process = svc.process_task(task, container);
     tokio::pin!(process);
-    let heartbeat_period = Duration::from_millis(heartbeat_interval_ms);
-    let lease_period = Duration::from_millis(task_lease_ms);
-    let mut lease_deadline = Instant::now() + lease_period;
-    let mut heartbeat = interval_at(Instant::now() + heartbeat_period, heartbeat_period);
-    heartbeat.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    // Poll lease maintenance alongside execution. Awaiting a renewal inside a
+    // select branch would stop polling the commit that currently owns its row lock.
+    let heartbeat = maintain_lease(
+        svc.clone(),
+        task_id,
+        lock_key,
+        heartbeat_interval_ms,
+        task_lease_ms,
+        initial_deadline,
+    );
+    tokio::pin!(heartbeat);
 
     loop {
         select! {
@@ -258,6 +279,11 @@ async fn run_one(
                         event.attempt = Some(attempt);
                         event
                     }
+                    Ok(TaskProcessOutcome::Suspended) => {
+                        let mut event = ExecutionLogEvent::info("queue_task.suspended", "queue_runner", "Task retained for explicit recovery");
+                        event.queue_task_uuid = Some(task_id);
+                        event
+                    }
                     Err(error) => {
                         let mut event = ExecutionLogEvent::error(
                             "queue_task.failed",
@@ -285,38 +311,51 @@ async fn run_one(
                     match &res {
                         Ok(TaskProcessOutcome::Completed) => "completed",
                         Ok(TaskProcessOutcome::RetryScheduled) => "retry_scheduled",
+                        Ok(TaskProcessOutcome::Suspended) => "suspended",
                         Err(_) => "failed",
                     }
                 );
                 return res.map(|_| ());
             }
-            _ = heartbeat.tick() => {
-                match svc.renew_queue_task_lock(task_id, &lock_key, task_lease_ms).await {
-                    Ok(true) => {
-                        lease_deadline = Instant::now() + lease_period;
-                        debug!("renewed lease for task {}", task_id);
-                    }
-                    Ok(false) => {
-                        warn!(
-                            "fluxpro.queue_task.lock_lost task_id={} lock_key={} reason=ownership_lost",
-                            task_id, lock_key
-                        );
-                        anyhow::bail!("lost ownership of task {} (lock {})", task_id, lock_key);
-                    }
-                    Err(e) => {
-                        if Instant::now() >= lease_deadline {
-                            warn!(
-                                "fluxpro.queue_task.lock_lost task_id={} lock_key={} reason=lease_expired error={e:#}",
-                                task_id, lock_key
-                            );
-                            anyhow::bail!(
-                                "could not renew task {} before its lease expired: {e:#}",
-                                task_id
-                            );
-                        }
-                        warn!("failed to renew lease for task {}: {e:#}", task_id);
-                    }
+            result = &mut heartbeat => return result,
+        }
+    }
+}
+
+async fn maintain_lease(
+    svc: Arc<dyn FluxproService + Send + Sync>,
+    task_id: uuid::Uuid,
+    lock_key: String,
+    heartbeat_interval_ms: u64,
+    task_lease_ms: u64,
+    initial_deadline: Instant,
+) -> anyhow::Result<()> {
+    let heartbeat_period = Duration::from_millis(heartbeat_interval_ms);
+    let lease_period = Duration::from_millis(task_lease_ms);
+    let mut lease_deadline = initial_deadline;
+    let mut heartbeat = interval_at(Instant::now() + heartbeat_period, heartbeat_period);
+    heartbeat.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    loop {
+        tokio::time::timeout_at(lease_deadline, heartbeat.tick())
+            .await
+            .map_err(|_| anyhow::anyhow!("task {task_id} lease expired"))?;
+        let renewal_started = Instant::now();
+        let renewal = tokio::time::timeout_at(
+            lease_deadline,
+            svc.renew_queue_task_lock(task_id, &lock_key, task_lease_ms),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("task {task_id} lease renewal exceeded deadline"))?;
+        match renewal {
+            Ok(true) => lease_deadline = renewal_started + lease_period,
+            Ok(false) => anyhow::bail!("lost ownership of task {task_id}"),
+            Err(error) => {
+                if Instant::now() >= lease_deadline {
+                    anyhow::bail!(
+                        "could not renew task {task_id} before its lease expired: {error:#}"
+                    );
                 }
+                warn!("failed to renew lease for task {task_id}: {error:#}");
             }
         }
     }

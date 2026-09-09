@@ -1,3 +1,5 @@
+//! Queue payload serialization and task execution outcomes.
+
 use crate::models::commands::post_signal::PostSignal;
 use crate::models::id_field::IdField;
 use crate::models::process_def::Node;
@@ -12,22 +14,40 @@ use sqlx::postgres::PgRow;
 #[cfg(feature = "db")]
 use sqlx::{Error, FromRow, Row};
 
+/// Persistent work item for node entry, timeout routing, or signal delivery.
+///
+/// Serde tags are part of the SQL queue contract: `process_node`,
+/// `ProcessEvent`, and `ProcessSignal`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum FluxproQueueTask {
+    /// Enters and executes a node.
     #[serde(rename = "process_node")]
-    ProcessNode { process_token: IdField, node: Node },
-    ProcessEvent {
+    ProcessNode {
+        /// Generated runtime token identifying the owning process instance.
         process_token: IdField,
+        /// Snapshot of the node associated with this queue item.
         node: Node,
+    },
+    /// Routes a timeout if its originating node is still current.
+    ProcessEvent {
+        /// Generated runtime token identifying the owning process instance.
+        process_token: IdField,
+        /// Snapshot of the node associated with this queue item.
+        node: Node,
+        /// Timeout successor node ID; despite the name, this is not a signal.
         on_time: IdField,
     },
+    /// Delivers a signal when the current node accepts its name.
     ProcessSignal {
+        /// Generated runtime token identifying the owning process instance.
         process_token: IdField,
+        /// Signal name accepted by a waiting node.
         signal: PostSignal,
     },
 }
 
 impl FluxproQueueTask {
+    /// Borrows the runtime instance token associated with this task.
     pub fn process_token(&self) -> &IdField {
         match self {
             Self::ProcessNode { process_token, .. }
@@ -37,25 +57,43 @@ impl FluxproQueueTask {
     }
 }
 
+/// Persisted task payload with scheduling and lease ownership metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FluxproQueueTaskDefinition {
+    /// Database row identity.
     pub uuid: Uuid,
+    /// UTC time when the row was created.
     pub created_at: DateTime<Utc>,
+    /// Earliest UTC time at which the task may be claimed.
     pub run_after: DateTime<Utc>,
+    /// Number of queue claims, including the current attempt.
     pub attempts: i32,
+    /// Lease ownership key; an empty string indicates an unleased task.
     pub lock_key: String,
+    /// UTC time at which the current lease was acquired.
     pub locked_at: Option<DateTime<Utc>>,
+    /// Legacy field name read from `locked_by`; decode mismatches yield `None`.
+    ///
+    /// The database column stores a lease deadline, not a worker identity.
+    /// Use the administration model for a typed lease-expiry timestamp.
     pub locket_by: Option<String>,
+    /// Serialized or decoded queue work payload.
     pub task: FluxproQueueTask,
 }
 
+/// Whether a queue item was consumed or retained for a later attempt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TaskProcessOutcome {
+    /// The queue item was consumed and removed.
     Completed,
+    /// The queue item remains scheduled for a later attempt.
     RetryScheduled,
+    /// The instance is suspended with this task retained for explicit recovery.
+    Suspended,
 }
 
 impl FluxproQueueTaskDefinition {
+    /// Returns the stable task-kind label used in diagnostics.
     pub fn kind(&self) -> String {
         match self.task {
             FluxproQueueTask::ProcessNode { .. } => "process_node".to_string(),
@@ -79,6 +117,8 @@ mod tests {
             set_stage: None,
         };
         let signal = PostSignal {
+            event_id: None,
+            wait_visit_id: None,
             signal: IdField::new("continue").unwrap(),
             context: ContextMap::default(),
         };
