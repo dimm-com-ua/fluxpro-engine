@@ -8,7 +8,7 @@ pub(super) fn InstanceDetails(
     session: MonitorSession,
     instance: MonitorInstance,
     actions: Option<Callback<Signal<Option<MonitorInstanceDetails>>, AnyView>>,
-) -> impl IntoView {
+) -> AnyView {
     let id = StoredValue::new(instance.uuid.clone());
     let initial = StoredValue::new(instance);
     let tab = RwSignal::new("Overview");
@@ -57,9 +57,10 @@ pub(super) fn InstanceDetails(
             </Show>
         </div>
     </section>}
+    .into_any()
 }
 #[component]
-fn JsonTree(#[prop(into)] label: String, #[prop(into)] value: Signal<Value>) -> impl IntoView {
+fn JsonTree(#[prop(into)] label: String, #[prop(into)] value: Signal<Value>) -> AnyView {
     let label = StoredValue::new(label);
     let kind = Memo::new(move |_| match value.get() {
         Value::Object(_) => 0,
@@ -77,4 +78,5 @@ fn JsonTree(#[prop(into)] label: String, #[prop(into)] value: Signal<Value>) -> 
         </details>}.into_any(),
         _=>view!{<div class="fm-json-value"><strong>{label.get_value()}</strong><code>{move ||match value.get(){Value::String(s)=>s,v=>v.to_string()}}</code></div>}.into_any(),
     } } }
+    .into_any()
 }

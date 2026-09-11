@@ -6,7 +6,7 @@ use crate::editor::{
 use leptos::{ev, html, prelude::*};
 
 #[component]
-pub(super) fn MonitorCanvas(session: MonitorSession) -> impl IntoView {
+pub(super) fn MonitorCanvas(session: MonitorSession) -> AnyView {
     let viewport = NodeRef::<html::Div>::new();
     let zoom = RwSignal::new(1.0_f64);
     let pending = RwSignal::new(None::<Position>);
@@ -38,17 +38,6 @@ pub(super) fn MonitorCanvas(session: MonitorSession) -> impl IntoView {
             }
         });
     });
-    let zoom_center = move |value| {
-        if let Some(el) = viewport.get_untracked() {
-            zoom_at.run((
-                value,
-                Position::new(
-                    el.client_width() as f64 / 2.0,
-                    el.client_height() as f64 / 2.0,
-                ),
-            ));
-        }
-    };
     let current_node = Memo::new(move |_| {
         let id = session.active.get()?;
         session.accepted.with(|s| {
@@ -87,7 +76,6 @@ pub(super) fn MonitorCanvas(session: MonitorSession) -> impl IntoView {
             el.set_scroll_top((position.y * zoom.get_untracked() - 80.0).max(0.0) as i32);
         }
     });
-    let size = Memo::new(move |_| session.document.with(|d| d.canvas_size()));
     view! {<main class="fp-canvas-wrap fm-canvas-wrap"><div class="fp-canvas-caption"><span class="fp-canvas-dot"></span>"LIVE DIAGRAM"<span>"VERSION-WIDE COUNTS"</span></div>
         <div class="fp-canvas" node_ref=viewport tabindex="0" aria-label="Live process diagram" class:fp-panning=move ||pan.get().is_some()
             on:wheel=move |event:ev::WheelEvent|{
@@ -101,35 +89,91 @@ pub(super) fn MonitorCanvas(session: MonitorSession) -> impl IntoView {
             on:pointerdown=move |event:ev::PointerEvent|{if event.meta_key()&&event.button()==0{if let Some(el)=viewport.get_untracked(){event.prevent_default();pan.set(Some((event.pointer_id(),event.client_x() as f64,event.client_y() as f64,el.scroll_left() as f64,el.scroll_top() as f64)));let _=el.set_pointer_capture(event.pointer_id());}}}
             on:pointermove=move |event:ev::PointerEvent|{if let (Some((id,x,y,sx,sy)),Some(el))=(pan.get_untracked(),viewport.get_untracked()){if id==event.pointer_id(){el.set_scroll_left((sx+x-event.client_x() as f64) as i32);el.set_scroll_top((sy+y-event.client_y() as f64) as i32);}}}
             on:pointerup=move |_:ev::PointerEvent|pan.set(None) on:pointercancel=move |_:ev::PointerEvent|pan.set(None) on:lostpointercapture=move |_:ev::PointerEvent|pan.set(None)>
-            <div class="fp-world" style=move ||{let (w,h)=size.get();format!("width:{}px;height:{}px",w*zoom.get(),h*zoom.get())}>
-                <div class="fp-scene" style=move ||{let(w,h)=size.get();format!("width:{w}px;height:{h}px;transform:scale({});transform-origin:0 0",zoom.get())}>
-                    <svg class="fp-connections" width=move ||size.get().0 height=move ||size.get().1 role="img" aria-label="Monitor process connections">
-                        {move ||session.document.with(|d|d.connections().into_iter().filter_map(|edge|{let path=d.connection_path(&edge)?;let branch=d.branch_port(&edge);let color=branch.map(|(_,color)|color).or_else(||edge.special_outlet().map(|(_,color,_)|color)).unwrap_or("#acb9cd");let target=d.positions.get(&edge.target)?;let source=d.positions.get(&edge.source)?;let x=target.x+112.0;let y=target.y;let arrow=format!("M {} {} L {x} {y} L {} {}",x-4.0,y-7.0,x+4.0,y-7.0);let label=if branch.is_some(){String::new()}else{edge.label.chars().take(28).collect::<String>()};Some(view!{<g><title>{format!("{} → {}: {}",edge.source,edge.target,edge.label)}</title><path d=path fill="none" stroke=color stroke-width="2"/><path d=arrow fill="none" stroke=color stroke-width="2"/><text x=source.x+120.0 y=source.y+112.0 fill="#7d8ca1" font-size="10">{label}</text></g>})}).collect_view())}
-                    </svg>
-                    <For each=move ||session.document.with(|d|d.definition.nodes.clone()) key=|n|n.id().to_string() children=move |node|{
-                        let id=StoredValue::new(node.id().to_string());let kind=BlockKind::of(&node);
-                        let count=Memo::new(move |_|session.accepted.with(|s|s.as_ref().and_then(|s|s.node_counts.iter().find(|c|c.node_id==id.get_value())).cloned()));
-                        view!{<button type="button" class="fm-node" class:fm-node-current=move ||current_node.get().as_deref()==Some(id.get_value().as_str())
-                            class:fm-node-occupied=move ||count.get().is_some_and(|c|c.instance_count>0)
-                            class:fm-node-branched=move ||session.document.with(|d|!d.branch_routes(&id.get_value()).is_empty())
-                            class:fm-node-error=move ||count.get().is_some_and(|c|c.errors>0) class:fm-node-escalation=move ||count.get().is_some_and(|c|c.escalations>0)
-                            style=move ||session.document.with(|d|{let p=d.positions.get(&id.get_value()).copied().unwrap_or_default();format!("left:{}px;top:{}px;height:{}px",p.x,p.y,d.node_height(&id.get_value()))})
-                            aria-label=move ||format!("{}: {} instances",id.get_value(),count.get().map(|c|c.instance_count.to_string()).unwrap_or("unknown".into()))
-                            on:click=move |event|{if !event.meta_key(){session.active.set(None);session.query(|q|q.node_id=Some(id.get_value()));}}>
-                            <span class="fm-node-icon">{kind.symbol()}</span><span class="fm-node-title"><strong>{kind.label()}</strong><small>{id.get_value()}</small></span>
-                            <span class="fm-node-count">{move ||count.get().map(|c|c.instance_count.to_string()).unwrap_or("—".into())}</span>
-                            <crate::editor::components::BranchRows routes=Signal::derive(move ||session.document.with(|d|d.branch_routes(&id.get_value())))/>
-                            <crate::editor::components::SpecialRoutePorts routes=Signal::derive(move ||session.document.with(|d|d.special_routes(&id.get_value())))/>
-                            <span class="fm-node-alerts"><Show when=move ||count.get().is_some_and(|c|c.errors>0)><span class="fm-issue-error">{move ||format!("! {} errors",count.get().map_or(0,|c|c.errors))}</span></Show><Show when=move ||count.get().is_some_and(|c|c.escalations>0)><span class="fm-issue-escalation">{move ||format!("↑ {} escalated",count.get().map_or(0,|c|c.escalations))}</span></Show></span>
-                        </button>}
-                    }/>
-                </div>
+            <MonitorScene session zoom current_node />
+        </div>
+        <MonitorNavigation viewport zoom zoom_at />
+    </main>}
+    .into_any()
+}
+
+#[component]
+fn MonitorScene(
+    session: MonitorSession,
+    zoom: RwSignal<f64>,
+    current_node: Memo<Option<String>>,
+) -> AnyView {
+    let size = Memo::new(move |_| session.document.with(|d| d.canvas_size()));
+    view! {
+        <div class="fp-world" style=move ||{let (w,h)=size.get();format!("width:{}px;height:{}px",w*zoom.get(),h*zoom.get())}>
+            <div class="fp-scene" style=move ||{let(w,h)=size.get();format!("width:{w}px;height:{h}px;transform:scale({});transform-origin:0 0",zoom.get())}>
+                <svg class="fp-connections" width=move ||size.get().0 height=move ||size.get().1 role="img" aria-label="Monitor process connections">
+                    {move ||session.document.with(|d|d.connections().into_iter().filter_map(|edge|{let path=d.connection_path(&edge)?;let branch=d.branch_port(&edge);let color=branch.map(|(_,color)|color).or_else(||edge.special_outlet().map(|(_,color,_)|color)).unwrap_or("#acb9cd");let target=d.positions.get(&edge.target)?;let source=d.positions.get(&edge.source)?;let x=target.x+112.0;let y=target.y;let arrow=format!("M {} {} L {x} {y} L {} {}",x-4.0,y-7.0,x+4.0,y-7.0);let label=if branch.is_some(){String::new()}else{edge.label.chars().take(28).collect::<String>()};Some(view!{<g><title>{format!("{} → {}: {}",edge.source,edge.target,edge.label)}</title><path d=path fill="none" stroke=color stroke-width="2"/><path d=arrow fill="none" stroke=color stroke-width="2"/><text x=source.x+120.0 y=source.y+112.0 fill="#7d8ca1" font-size="10">{label}</text></g>})}).collect_view())}
+                </svg>
+                <For each=move ||session.document.with(|d|d.definition.nodes.clone()) key=|n|n.id().to_string() children=move |node|view!{
+                    <MonitorNode session current_node node />
+                }/>
             </div>
         </div>
+    }
+    .into_any()
+}
+
+#[component]
+fn MonitorNode(
+    session: MonitorSession,
+    current_node: Memo<Option<String>>,
+    node: crate::models::process_def::Node,
+) -> AnyView {
+    let id = StoredValue::new(node.id().to_string());
+    let kind = BlockKind::of(&node);
+    let count = Memo::new(move |_| {
+        session.accepted.with(|s| {
+            s.as_ref()
+                .and_then(|s| s.node_counts.iter().find(|c| c.node_id == id.get_value()))
+                .cloned()
+        })
+    });
+    view! {
+        <button type="button" class="fm-node" class:fm-node-current=move ||current_node.get().as_deref()==Some(id.get_value().as_str())
+            class:fm-node-occupied=move ||count.get().is_some_and(|c|c.instance_count>0)
+            class:fm-node-branched=move ||session.document.with(|d|!d.branch_routes(&id.get_value()).is_empty())
+            class:fm-node-error=move ||count.get().is_some_and(|c|c.errors>0) class:fm-node-escalation=move ||count.get().is_some_and(|c|c.escalations>0)
+            style=move ||session.document.with(|d|{let p=d.positions.get(&id.get_value()).copied().unwrap_or_default();format!("left:{}px;top:{}px;height:{}px",p.x,p.y,d.node_height(&id.get_value()))})
+            aria-label=move ||format!("{}: {} instances",id.get_value(),count.get().map(|c|c.instance_count.to_string()).unwrap_or("unknown".into()))
+            on:click=move |event|{if !event.meta_key(){session.active.set(None);session.query(|q|q.node_id=Some(id.get_value()));}}>
+            <span class="fm-node-icon">{kind.symbol()}</span><span class="fm-node-title"><strong>{kind.label()}</strong><small>{id.get_value()}</small></span>
+            <span class="fm-node-count">{move ||count.get().map(|c|c.instance_count.to_string()).unwrap_or("—".into())}</span>
+            <crate::editor::components::BranchRows routes=Signal::derive(move ||session.document.with(|d|d.branch_routes(&id.get_value())))/>
+            <crate::editor::components::SpecialRoutePorts routes=Signal::derive(move ||session.document.with(|d|d.special_routes(&id.get_value())))/>
+            <span class="fm-node-alerts"><Show when=move ||count.get().is_some_and(|c|c.errors>0)><span class="fm-issue-error">{move ||format!("! {} errors",count.get().map_or(0,|c|c.errors))}</span></Show><Show when=move ||count.get().is_some_and(|c|c.escalations>0)><span class="fm-issue-escalation">{move ||format!("↑ {} escalated",count.get().map_or(0,|c|c.escalations))}</span></Show></span>
+        </button>
+    }
+    .into_any()
+}
+
+#[component]
+fn MonitorNavigation(
+    viewport: NodeRef<html::Div>,
+    zoom: RwSignal<f64>,
+    zoom_at: Callback<(f64, Position)>,
+) -> AnyView {
+    let zoom_center = move |value| {
+        if let Some(el) = viewport.get_untracked() {
+            zoom_at.run((
+                value,
+                Position::new(
+                    el.client_width() as f64 / 2.0,
+                    el.client_height() as f64 / 2.0,
+                ),
+            ));
+        }
+    };
+    view! {
         <div class="fp-canvas-navigation"><span class="fm-legend"><i class="fm-legend-current"></i>"Current block"<i class="fm-legend-error"></i>"Error"<i class="fm-legend-escalation"></i>"Escalation"</span>
             <button type="button" aria-label="Monitor zoom out" disabled={move ||zoom.get()<=MIN_ZOOM} on:click=move |_|zoom_center(zoom.get_untracked()/1.2)>"−"</button>
             <button type="button" aria-label="Monitor reset zoom" on:click=move |_|zoom_center(1.0)>{move ||format!("{:.0}%",zoom.get()*100.0)}</button>
             <button type="button" aria-label="Monitor zoom in" disabled={move ||zoom.get()>=MAX_ZOOM} on:click=move |_|zoom_center(zoom.get_untracked()*1.2)>"+"</button>
         </div>
-    </main>}
+    }
+    .into_any()
 }

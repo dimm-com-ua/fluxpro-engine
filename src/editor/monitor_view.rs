@@ -136,10 +136,11 @@ pub fn ProcessMonitor(
     /// Optional host actions rendered in the Events section of each instance pane.
     #[prop(optional)]
     instance_actions: Option<Callback<Signal<Option<MonitorInstanceDetails>>, AnyView>>,
-) -> impl IntoView {
+) -> AnyView {
     view! {<section class="fluxpro-editor fluxpro-monitor" aria-label="FluxPro process monitor"><style>{EDITOR_CSS}</style><style>{include_str!("monitor.css")}</style>
         <For each=move ||vec![MonitorScope::from_document(&document.get())] key=|scope|scope.clone() children=move |scope|view!{<MonitorBody document=document snapshot=snapshot on_request=on_request scope=scope refresh_interval_ms=refresh_interval_ms open_instance=open_instance instance_actions=instance_actions show_instances=show_instances active_counts_only=active_counts_only/>}/>
     </section>}
+    .into_any()
 }
 #[component]
 fn MonitorBody(
@@ -152,7 +153,7 @@ fn MonitorBody(
     show_instances: bool,
     open_instance: Signal<Option<MonitorInstance>>,
     instance_actions: Option<Callback<Signal<Option<MonitorInstanceDetails>>, AnyView>>,
-) -> impl IntoView {
+) -> AnyView {
     let session = MonitorSession {
         document,
         request: RwSignal::new(MonitorRequest {
@@ -263,9 +264,10 @@ fn MonitorBody(
         </div></div>
         <footer class="fp-status"><span>"Read-only · "{move ||session.request.with(|r|format!("{} / {}",r.scope.key,r.scope.version))}</span><span>"Pinch to zoom · ⌘ + drag to pan · Select a block to filter"</span></footer>
     }
+    .into_any()
 }
 #[component]
-fn InstanceList(session: MonitorSession) -> impl IntoView {
+fn InstanceList(session: MonitorSession) -> AnyView {
     let search = RwSignal::new(String::new());
     let page = Memo::new(move |_| {
         session.accepted.with(|s| {
@@ -295,6 +297,7 @@ fn InstanceList(session: MonitorSession) -> impl IntoView {
             <button type="button" disabled=move ||page.get().is_none_or(|p|session.request.with(|r|r.query.offset+r.query.limit as u64>=p.total)) on:click=move |_|session.change(|r|r.query.offset+=r.query.limit as u64)>"Next"</button>
         </div>
     </section>}
+    .into_any()
 }
 
 #[cfg(test)]
