@@ -75,19 +75,20 @@ pub(super) fn TextField(
     label: &'static str,
     #[prop(default = "text")] kind: &'static str,
     #[prop(default = false)] optional: bool,
-) -> impl IntoView {
+) -> AnyView {
     view! { <label class="fp-field">{label}<input type=kind step="any" prop:value=move || field.text() on:input=move |ev| {
         let value = event_target_value(&ev);
         field.set(if optional && value.is_empty() { Value::Null } else if kind == "number" { serde_json::from_str::<Value>(&value).ok().filter(Value::is_number).unwrap_or(json!(value)) } else { json!(value) });
     }/></label> }
+    .into_any()
 }
 #[component]
-pub(super) fn Notes(field: Field, label: &'static str) -> impl IntoView {
-    view! { <label class="fp-field">{label}<textarea rows="3" prop:value=move || field.text() on:input=move |ev| field.set(json!(event_target_value(&ev)))></textarea></label> }
+pub(super) fn Notes(field: Field, label: &'static str) -> AnyView {
+    view! { <label class="fp-field">{label}<textarea rows="3" prop:value=move || field.text() on:input=move |ev| field.set(json!(event_target_value(&ev)))></textarea></label> }.into_any()
 }
 #[component]
-pub(super) fn Check(field: Field, label: &'static str) -> impl IntoView {
-    view! { <label class="fp-check"><input type="checkbox" prop:checked=move || field.get().as_bool().unwrap_or(false) on:change=move |ev| field.set(json!(event_target_checked(&ev)))/>{label}</label> }
+pub(super) fn Check(field: Field, label: &'static str) -> AnyView {
+    view! { <label class="fp-check"><input type="checkbox" prop:checked=move || field.get().as_bool().unwrap_or(false) on:change=move |ev| field.set(json!(event_target_checked(&ev)))/>{label}</label> }.into_any()
 }
 #[component]
 pub(super) fn Select(
@@ -95,7 +96,7 @@ pub(super) fn Select(
     label: &'static str,
     options: Signal<Vec<String>>,
     #[prop(default = true)] optional: bool,
-) -> impl IntoView {
+) -> AnyView {
     // Retain unresolved imported references so opening a form never drops them.
     let choices = Memo::new(move |_| {
         let mut values = options.get();
@@ -109,6 +110,7 @@ pub(super) fn Select(
         <option value="">{if optional { "None" } else { "Choose…" }}</option>
         {move || choices.get().into_iter().map(|id| view! { <option value=id.clone()>{id.clone()}</option> }).collect_view()}
     </select></label> }
+    .into_any()
 }
 pub(super) fn fixed(values: &[&str]) -> Signal<Vec<String>> {
     Signal::stored(values.iter().map(|s| s.to_string()).collect())
@@ -156,12 +158,12 @@ pub(super) fn catalog(session: Session, kind: &'static str) -> Signal<Vec<String
     })
 }
 #[component]
-pub(super) fn Toggle(field: Field, label: &'static str, initial: Value) -> impl IntoView {
+pub(super) fn Toggle(field: Field, label: &'static str, initial: Value) -> AnyView {
     let initial = StoredValue::new(initial);
-    view! { <label class="fp-check"><input type="checkbox" prop:checked=move || !field.get().is_null() on:change=move |ev| field.set(if event_target_checked(&ev) { initial.get_value() } else { Value::Null })/>{label}</label> }
+    view! { <label class="fp-check"><input type="checkbox" prop:checked=move || !field.get().is_null() on:change=move |ev| field.set(if event_target_checked(&ev) { initial.get_value() } else { Value::Null })/>{label}</label> }.into_any()
 }
 #[component]
-pub(super) fn DurationField(field: Field, label: &'static str) -> impl IntoView {
+pub(super) fn DurationField(field: Field, label: &'static str) -> AnyView {
     let initial_value = untrack(move || field.text());
     let initial = duration_parts(&initial_value);
     let amount = RwSignal::new(initial.0);
@@ -188,16 +190,17 @@ pub(super) fn DurationField(field: Field, label: &'static str) -> impl IntoView 
             unit.set(next); write();
         }><option value="seconds">"Seconds"</option><option value="minutes">"Minutes"</option><option value="hours">"Hours"</option><option value="days">"Days"</option><option value="weeks">"Weeks"</option><option value="custom">"ISO duration"</option></select></label></div>
     }
+    .into_any()
 }
 #[component]
-pub(super) fn DateField(field: Field, label: &'static str) -> impl IntoView {
+pub(super) fn DateField(field: Field, label: &'static str) -> AnyView {
     view! { <label class="fp-field">{label}<input type="datetime-local" step="any" prop:value=move || {
         chrono::DateTime::parse_from_rfc3339(&field.text()).map(|v| v.with_timezone(&chrono::Utc).format("%Y-%m-%dT%H:%M:%S%.f").to_string()).unwrap_or_else(|_| field.text().trim_end_matches('Z').to_owned())
-    } on:input=move |ev| { let value=event_target_value(&ev); field.set(if value.is_empty() { Value::Null } else { json!(format!("{}Z", if value.len()==16 {format!("{value}:00")} else {value})) }); }/></label> }
+    } on:input=move |ev| { let value=event_target_value(&ev); field.set(if value.is_empty() { Value::Null } else { json!(format!("{}Z", if value.len()==16 {format!("{value}:00")} else {value})) }); }/></label> }.into_any()
 }
 
 #[component]
-pub(super) fn HandlerField(field: Field, label: &'static str, session: Session) -> impl IntoView {
+pub(super) fn HandlerField(field: Field, label: &'static str, session: Session) -> AnyView {
     let list_id = format!("fp-handlers-{}", field.path.get_value().replace('/', "-"));
     let options = move || {
         session.state.with(|s| {
@@ -222,6 +225,7 @@ pub(super) fn HandlerField(field: Field, label: &'static str, session: Session) 
     };
     view! { <label class="fp-field">{label}<input list=list_id.clone() prop:value=move || field.text() on:input=move |ev| field.set(json!(event_target_value(&ev)))/></label>
     <datalist id=list_id>{move || options().into_iter().map(|id| view!{ <option value=id/> }).collect_view()}</datalist> }
+    .into_any()
 }
 /// Recursive editor for ordinary JSON and the engine's typed ContextValue wrappers.
 #[component]

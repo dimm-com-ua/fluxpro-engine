@@ -4,7 +4,7 @@ use leptos::prelude::*;
 use serde_json::{Value, json};
 
 #[component]
-pub(super) fn ProcessSettings(session: Session) -> impl IntoView {
+pub(super) fn ProcessSettings(session: Session) -> AnyView {
     let current = session
         .state
         .with_untracked(|s| process_settings(&s.document));
@@ -43,17 +43,19 @@ pub(super) fn ProcessSettings(session: Session) -> impl IntoView {
         </section>
         <section class="fp-setting-card fp-stages-card"><h3>"Business stages"</h3><p>"Mark exactly one stage as initial. Update block assignments before renaming or removing a used stage."</p><Stages field=field.child("stages")/></section>
     </div></div> }
+    .into_any()
 }
 #[component]
-fn Hook(field: Field, label: &'static str, session: Session) -> impl IntoView {
+fn Hook(field: Field, label: &'static str, session: Session) -> AnyView {
     let expanded = Memo::new(move |_| field.get().is_object());
     view! { <Toggle field=field label=label initial=json!("")/><Show when=move || !field.get().is_null()>{move || {
         let payload=if expanded.get(){field.child("handler")}else{field};
         view!{<HandlerField field=payload label=label session=session/>}
     }}</Show> }
+    .into_any()
 }
 #[component]
-fn Stages(field: Field) -> impl IntoView {
+fn Stages(field: Field) -> AnyView {
     view! { <For each={move ||(0..field.get().as_array().map_or(0,Vec::len)).collect::<Vec<_>>()} key=|i|*i children=move |i| {
         let row=field.child(i); let compact=Memo::new(move |_|row.get().is_string());
         view!{<div class="fp-stage-row">
@@ -64,6 +66,7 @@ fn Stages(field: Field) -> impl IntoView {
             <button type="button" on:click=move |_| {let mut values=field.get();if let Some(a)=values.as_array_mut(){a.remove(i);}field.set(values);}>"Remove stage"</button>
         </div>}
     }/><button type="button" on:click=move |_| {let mut values=field.get();if let Some(a)=values.as_array_mut(){let mut i=a.len()+1;while a.iter().any(|v|v.as_str().or_else(||v["id"].as_str())==Some(format!("stage_{i}").as_str())){i+=1;}a.push(json!({"id":format!("stage_{i}"),"name":"New stage"}));}field.set(values);}>"Add stage"</button> }
+    .into_any()
 }
 
 #[component]
@@ -72,7 +75,7 @@ fn DraftActions(
     draft: RwSignal<Value>,
     baseline: RwSignal<Value>,
     node: Option<String>,
-) -> impl IntoView {
+) -> AnyView {
     let pending_key = StoredValue::new(
         node.as_ref()
             .map(|id| format!("node:{id}"))
@@ -102,19 +105,21 @@ fn DraftActions(
             if session.message.get_untracked().is_empty(){if let Some(id)=renamed{node.set_value(Some(id.clone()));session.selected.set(Some(id));}let current=read();draft.set(current.clone());baseline.set(current);}
         }>"Apply settings"</button>
     </div>}
+    .into_any()
 }
 
 #[component]
-pub(super) fn ProcessInspector(session: Session, active: RwSignal<EditorTab>) -> impl IntoView {
+pub(super) fn ProcessInspector(session: Session, active: RwSignal<EditorTab>) -> AnyView {
     view! {<aside class="fp-inspector" aria-label="Process properties"><div class="fp-panel-heading"><span class="fp-eyebrow">"MAKE IT WORK"</span><h2>"Properties"</h2></div>
         <Show when=move ||session.selected.get().is_none()><div class="fp-empty-inspector"><h3>"Select a block"</h3><p>"Configure its signals, stages, timeouts and paths here."</p></div></Show>
         <button type="button" class="fp-wide" on:click=move |_|active.set(EditorTab::Settings)>"General process settings"</button>
         <For each={move ||session.selected.get().into_iter().collect::<Vec<_>>()} key=|id|id.clone() children=move |id|view!{<NodeSettings session=session id=id/>}/>
         <details class="fp-diagnostics"><summary>{move ||session.state.with(|s|format!("Review · {}",s.document.diagnostics().len()))}</summary><ul>{move ||session.state.with(|s|s.document.diagnostics().into_iter().map(|m|view!{<li>{m}</li>}).collect_view())}</ul><p>"Your application validates registered handlers and Rhai expressions."</p></details>
     </aside>}
+    .into_any()
 }
 #[component]
-fn NodeSettings(session: Session, id: String) -> impl IntoView {
+fn NodeSettings(session: Session, id: String) -> AnyView {
     let id = StoredValue::new(id);
     let read = move || {
         session.state.with(|s| {
@@ -173,18 +178,20 @@ fn NodeSettings(session: Session, id: String) -> impl IntoView {
         <DraftActions session=session draft=draft baseline=baseline node=Some(id.get_value())/>
         <button type="button" class="fp-danger" on:click=move |_|{session.edit(|doc|doc.remove_node(&id.get_value()));if !session.state.with_untracked(|s|s.document.node(&id.get_value()).is_some()){session.selected.set(None);}}>"Delete block"</button>
     </div>}
+    .into_any()
 }
 #[component]
-fn StageAssignment(field: Field, session: Session) -> impl IntoView {
+fn StageAssignment(field: Field, session: Session) -> AnyView {
     view! {<Toggle field=field label="Assign a stage on entry" initial=json!("")/><Show when=move ||!field.get().is_null()>
         {move ||{let stage=if field.get().is_object(){field.child("stage")}else{field};view!{<Select field=stage label="Stage" options=catalog(session,"stages") optional=false/>}}}
         <label class="fp-check"><input type="checkbox" prop:checked=move ||field.get().is_object() on:change=move |ev|{
             let current=field.get();field.set(if event_target_checked(&ev){json!({"stage":current,"reason":""})}else{current["stage"].clone()});
         }/>"Include stage reason"</label><Show when=move ||field.get().is_object()><Notes field=field.child("reason") label="Stage reason"/></Show>
     </Show>}
+    .into_any()
 }
 #[component]
-fn SignalPicker(field: Field, session: Session) -> impl IntoView {
+fn SignalPicker(field: Field, session: Session) -> AnyView {
     let selected = move || {
         let v = field.get();
         if let Some(s) = v["signal"].as_str() {
@@ -212,9 +219,10 @@ fn SignalPicker(field: Field, session: Session) -> impl IntoView {
     <For each=move ||options.get() key=|id|id.clone() children=move |id|{let id=StoredValue::new(id);view!{
         <label class="fp-check"><input type="checkbox" prop:checked=move ||selected().contains(&id.get_value()) on:change=move |ev|{let mut values=selected();if event_target_checked(&ev){if !values.contains(&id.get_value()){values.push(id.get_value());}}else{values.retain(|s|*s!=id.get_value());}field.set(json!({"signals":values}));}/>{id.get_value()}</label>
     }}/></div>}
+    .into_any()
 }
 #[component]
-fn Routes(field: Field, session: Session, kind: String) -> impl IntoView {
+fn Routes(field: Field, session: Session, kind: String) -> AnyView {
     let kind = StoredValue::new(kind);
     let next = field.child("next");
     view! {<Show when=move ||kind.get_value()=="Gateway"><Select field=field.child("gateway") label="Gateway rule" options=fixed(&["XOR"]) optional=false/></Show>
@@ -223,9 +231,10 @@ fn Routes(field: Field, session: Session, kind: String) -> impl IntoView {
             <Branches field=field session=session gateway=kind.get_value()=="Gateway"/>
         </Show>
     }
+    .into_any()
 }
 #[component]
-fn Branches(field: Field, session: Session, gateway: bool) -> impl IntoView {
+fn Branches(field: Field, session: Session, gateway: bool) -> AnyView {
     let rows = if gateway {
         field.child("branches")
     } else {
@@ -241,6 +250,7 @@ fn Branches(field: Field, session: Session, gateway: bool) -> impl IntoView {
         if !gateway && !field.child("next").get().is_object(){let default=field.child("next").get();field.child("next").set(json!({"default":default,"branches":[]}));}
         let mut v=rows.get();if !v.is_array(){v=json!([]);}v.as_array_mut().unwrap().push(json!({"when":"","next":""}));rows.set(v);
     }>"Add condition"</button>}
+    .into_any()
 }
 
 #[cfg(all(test, feature = "editor-ssr"))]

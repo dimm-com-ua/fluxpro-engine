@@ -12,9 +12,7 @@ use wasm_bindgen::JsCast;
 
 /// The same condition rows and outlet colors are used by both canvas renderers.
 #[component]
-pub(crate) fn BranchRows(
-    #[prop(into)] routes: Signal<Vec<crate::editor::Connection>>,
-) -> impl IntoView {
+pub(crate) fn BranchRows(#[prop(into)] routes: Signal<Vec<crate::editor::Connection>>) -> AnyView {
     view! {
         <span class="fp-branch-rows">
             {move || routes.get().into_iter().enumerate().map(|(index, edge)| view! {
@@ -26,12 +24,13 @@ pub(crate) fn BranchRows(
             }).collect_view()}
         </span>
     }
+    .into_any()
 }
 
 #[component]
 pub(crate) fn SpecialRoutePorts(
     #[prop(into)] routes: Signal<Vec<crate::editor::Connection>>,
-) -> impl IntoView {
+) -> AnyView {
     view! {
         {move || routes.get().into_iter().filter_map(|edge| {
             let (x, color, icon) = edge.special_outlet()?;
@@ -42,6 +41,7 @@ pub(crate) fn SpecialRoutePorts(
             })
         }).collect_view()}
     }
+    .into_any()
 }
 
 #[derive(Clone)]
@@ -180,7 +180,7 @@ pub fn ProcessEditor(
     /// Prevent Save/export and switching edited blocks until their forms are applied.
     #[prop(optional)]
     require_applied_changes: bool,
-) -> impl IntoView {
+) -> AnyView {
     let session = Session {
         state: RwSignal::new(EditorState::new(document)),
         pending_forms: RwSignal::new(Default::default()),
@@ -198,38 +198,29 @@ pub fn ProcessEditor(
             callback.run(pending);
         }
     });
-    let pending =
-        move || require_applied_changes && session.pending_forms.with(|forms| !forms.is_empty());
     let active_tab = RwSignal::new(EditorTab::Process);
     let yaml_open = RwSignal::new(false);
     let yaml = RwSignal::new(String::new());
     let yaml_error = RwSignal::new(String::new());
-    let yaml_input = NodeRef::<html::Textarea>::new();
-    Effect::new(move |_| {
-        if yaml_open.get() {
-            if let Some(input) = yaml_input.get() {
-                let _ = input.focus();
-            }
-        }
-    });
-    let diagnostics = Memo::new(move |_| session.state.with(|s| s.document.diagnostics()));
     Effect::new(move |_| {
         let document = session.state.with(|state| state.document.clone());
         if let Some(callback) = on_change {
             callback.run(document);
         }
     });
-    let open_yaml = move || match session
-        .state
-        .with_untracked(|s| s.document.to_project_yaml())
-    {
-        Ok(value) => {
-            yaml.set(value);
-            yaml_error.set(String::new());
-            yaml_open.set(true);
+    let open_yaml = Callback::new(move |_: ()| {
+        match session
+            .state
+            .with_untracked(|s| s.document.to_project_yaml())
+        {
+            Ok(value) => {
+                yaml.set(value);
+                yaml_error.set(String::new());
+                yaml_open.set(true);
+            }
+            Err(error) => session.message.set(error),
         }
-        Err(error) => session.message.set(error),
-    };
+    });
     view! {
         <section class="fluxpro-editor" aria-label="FluxPro process editor"
             on:keydown=move |event: ev::KeyboardEvent| {
@@ -242,85 +233,148 @@ pub fn ProcessEditor(
                 }
             }>
             <style>{EDITOR_CSS}</style>
-            <header class="fp-toolbar" inert=move || yaml_open.get()>
-                <div class="fp-brand"><span class="fp-brand-mark">"ƒ"</span><div><strong>"Process studio"</strong><span>"FLUXPRO"</span></div></div>
-                <div class="fp-process-name">{move || session.state.with(|s| s.document.definition.name.clone())}<span class="fp-draft">{move || session.state.with(|s| s.document.definition.status.to_string())}</span></div>
-                <div class="fp-actions">
-                    <button type="button" title="Undo · ⌘Z" aria-label="Undo" disabled=move || !session.state.with(|s| s.can_undo()) on:click=move |_| session.state.update(EditorState::undo)>"↶"</button>
-                    <button type="button" title="Redo · ⌘⇧Z" aria-label="Redo" disabled=move || !session.state.with(|s| s.can_redo()) on:click=move |_| session.state.update(EditorState::redo)>"↷"</button>
-                    <button type="button" disabled=move || active_tab.get() != EditorTab::Process on:click=move |_| { session.reveal_node.set(None); session.edit(|doc| { doc.auto_layout(); Ok(()) }); session.reset_view.update(|revision| *revision += 1); }>"↓ Arrange"</button>
-                    <button type="button" disabled=pending on:click=move |_| open_yaml()>"YAML"</button>
-                    <button type="button" class="fp-primary" disabled=pending title=move ||if pending(){"Apply pending form changes before saving"}else{"Save process"} on:click=move |_| {
-                        if pending() {return;}
-                        if let Some(callback) = on_save { callback.run(session.state.with_untracked(|s| s.document.clone())); }
-                        else { open_yaml(); }
-                    }>{save_label}</button>
-                </div>
-            </header>
-            <div inert=move || yaml_open.get()><EditorTabs session=session active=active_tab/></div>
-            <div class="fp-editor-body" inert=move || yaml_open.get()>
-                <div class="fp-workspace fp-tab-panel" role="tabpanel" aria-label="Process" hidden=move || active_tab.get() != EditorTab::Process>
-                    <BlockPalette session=session/>
-                    <ProcessCanvas session=session/>
-                    <ProcessInspector session=session active=active_tab/>
-                </div>
-                <div class="fp-tab-panel" role="tabpanel" aria-label="Settings" hidden=move || active_tab.get() != EditorTab::Settings><ProcessSettings session=session/></div>
-                <div class="fp-tab-panel" role="tabpanel" aria-label="Forms" hidden=move || active_tab.get() != EditorTab::Forms><DeclarationPanel session=session kind=DeclarationKind::Form active=active_tab/></div>
-                <div class="fp-tab-panel" role="tabpanel" aria-label="Signals" hidden=move || active_tab.get() != EditorTab::Signals><DeclarationPanel session=session kind=DeclarationKind::Signal active=active_tab/></div>
-                <div class="fp-tab-panel" role="tabpanel" aria-label="Escalations" hidden=move || active_tab.get() != EditorTab::Escalations><DeclarationPanel session=session kind=DeclarationKind::Escalation active=active_tab/></div>
-            </div>
-            <footer class="fp-status">
-                <span class="fp-status-count">{move || session.state.with(|s| format!("{} blocks · {} connections", s.document.definition.nodes.len(), s.document.connections().len()))}</span>
-                <span class="fp-gesture-hint" hidden=move || active_tab.get() != EditorTab::Process>"Pinch to zoom · Scroll to explore · ⌘ + drag to pan"</span>
-                <span role="status" class="fp-feedback">{move || {
-                    let message = session.message.get();
-                    if !message.is_empty() { message }
-                    else if let Some(id) = session.connecting.get() { format!("Connect {id}: choose a destination · Esc to cancel") }
-                    else if diagnostics.get().is_empty() { "No structural issues".into() }
-                    else { format!("{} items to review", diagnostics.get().len()) }
-                }}</span>
-            </footer>
-            <Show when=move || yaml_open.get()>
-                <div class="fp-modal-backdrop">
-                    <section class="fp-yaml-dialog" role="dialog" aria-modal="true" aria-label="Import and export process YAML">
-                        <header><div><h2>"Process YAML"</h2><p>"Import a definition or save your process with its layout."</p></div><button type="button" aria-label="Close YAML panel" on:click=move |_| yaml_open.set(false)>"✕"</button></header>
-                        <div class="fp-yaml-tools">
-                            <label class="fp-file">"Open .yaml file"<input type="file" accept=".yaml,.yml,application/yaml,text/yaml" on:change=move |event| {
-                                let input = event_target::<web_sys::HtmlInputElement>(&event);
-                                if let Some(file) = input.files().and_then(|files| files.get(0)) {
-                                    leptos::task::spawn_local(async move {
-                                        match wasm_bindgen_futures::JsFuture::from(file.text()).await {
-                                            Ok(text) => { yaml.set(text.as_string().unwrap_or_default()); yaml_error.set(String::new()); }
-                                            Err(_) => yaml_error.set("Could not read this file.".into()),
-                                        }
-                                    });
-                                }
-                                input.set_value("");
-                            }/></label>
-                            <button type="button" on:click=move |_| {
-                                match session.state.with_untracked(|s| s.document.to_process_yaml()) {
-                                    Ok(text) => yaml.set(text), Err(error) => yaml_error.set(error),
-                                }
-                            }>"Process only"</button>
-                            <button type="button" on:click=move |_| open_yaml()>"Include layout"</button>
-                        </div>
-                        <textarea class="fp-yaml-input" node_ref=yaml_input aria-label="Process YAML" spellcheck="false" prop:value=move || yaml.get() on:input=move |event| yaml.set(event_target_value(&event))></textarea>
-                        <p class="fp-error" role="alert">{move || yaml_error.get()}</p>
-                        <footer><a class="fp-button" download="process.yaml" href=move || format!("data:application/yaml;charset=utf-8,{}", percent_encode(&yaml.get()))>"Download YAML"</a>
-                        <button type="button" class="fp-primary" on:click=move |_| {
-                            match EditorDocument::from_yaml(&yaml.get_untracked()) {
-                                Ok(document) => {
-                                    session.edit(|doc| { *doc = document; Ok(()) });
-                                    session.selected.set(None); session.connecting.set(None); session.reveal_node.set(None); session.reveal_declaration.set(None); active_tab.set(EditorTab::Process); yaml_open.set(false); session.reset_view.update(|revision| *revision += 1);
-                                }
-                                Err(error) => yaml_error.set(error),
-                            }
-                        }>"Import process"</button></footer>
-                    </section>
-                </div>
-            </Show>
+            <EditorToolbar session active_tab yaml_open require_applied_changes open_yaml on_save save_label />
+            <EditorWorkspace session active_tab yaml_open />
+            <EditorStatus session active_tab />
+            <YamlDialog session active_tab yaml_open yaml yaml_error open_yaml />
         </section>
     }
+    .into_any()
+}
+
+#[component]
+fn EditorToolbar(
+    session: Session,
+    active_tab: RwSignal<EditorTab>,
+    yaml_open: RwSignal<bool>,
+    require_applied_changes: bool,
+    open_yaml: Callback<()>,
+    on_save: Option<Callback<EditorDocument>>,
+    save_label: &'static str,
+) -> AnyView {
+    let pending =
+        move || require_applied_changes && session.pending_forms.with(|forms| !forms.is_empty());
+    view! {
+        <header class="fp-toolbar" inert=move || yaml_open.get()>
+            <div class="fp-brand"><span class="fp-brand-mark">"ƒ"</span><div><strong>"Process studio"</strong><span>"FLUXPRO"</span></div></div>
+            <div class="fp-process-name">{move || session.state.with(|s| s.document.definition.name.clone())}<span class="fp-draft">{move || session.state.with(|s| s.document.definition.status.to_string())}</span></div>
+            <div class="fp-actions">
+                <button type="button" title="Undo · ⌘Z" aria-label="Undo" disabled=move || !session.state.with(|s| s.can_undo()) on:click=move |_| session.state.update(EditorState::undo)>"↶"</button>
+                <button type="button" title="Redo · ⌘⇧Z" aria-label="Redo" disabled=move || !session.state.with(|s| s.can_redo()) on:click=move |_| session.state.update(EditorState::redo)>"↷"</button>
+                <button type="button" disabled=move || active_tab.get() != EditorTab::Process on:click=move |_| { session.reveal_node.set(None); session.edit(|doc| { doc.auto_layout(); Ok(()) }); session.reset_view.update(|revision| *revision += 1); }>"↓ Arrange"</button>
+                <button type="button" disabled=pending on:click=move |_| open_yaml.run(())>"YAML"</button>
+                <button type="button" class="fp-primary" disabled=pending title=move ||if pending(){"Apply pending form changes before saving"}else{"Save process"} on:click=move |_| {
+                    if pending() {return;}
+                    if let Some(callback) = on_save { callback.run(session.state.with_untracked(|s| s.document.clone())); }
+                    else { open_yaml.run(()); }
+                }>{save_label}</button>
+            </div>
+        </header>
+    }
+    .into_any()
+}
+
+#[component]
+fn EditorWorkspace(
+    session: Session,
+    active_tab: RwSignal<EditorTab>,
+    yaml_open: RwSignal<bool>,
+) -> AnyView {
+    view! {
+        <div inert=move || yaml_open.get()><EditorTabs session=session active=active_tab/></div>
+        <div class="fp-editor-body" inert=move || yaml_open.get()>
+            <div class="fp-workspace fp-tab-panel" role="tabpanel" aria-label="Process" hidden=move || active_tab.get() != EditorTab::Process>
+                <BlockPalette session=session/>
+                <ProcessCanvas session=session/>
+                <ProcessInspector session=session active=active_tab/>
+            </div>
+            <div class="fp-tab-panel" role="tabpanel" aria-label="Settings" hidden=move || active_tab.get() != EditorTab::Settings><ProcessSettings session=session/></div>
+            <div class="fp-tab-panel" role="tabpanel" aria-label="Forms" hidden=move || active_tab.get() != EditorTab::Forms><DeclarationPanel session=session kind=DeclarationKind::Form active=active_tab/></div>
+            <div class="fp-tab-panel" role="tabpanel" aria-label="Signals" hidden=move || active_tab.get() != EditorTab::Signals><DeclarationPanel session=session kind=DeclarationKind::Signal active=active_tab/></div>
+            <div class="fp-tab-panel" role="tabpanel" aria-label="Escalations" hidden=move || active_tab.get() != EditorTab::Escalations><DeclarationPanel session=session kind=DeclarationKind::Escalation active=active_tab/></div>
+        </div>
+    }
+    .into_any()
+}
+
+#[component]
+fn EditorStatus(session: Session, active_tab: RwSignal<EditorTab>) -> AnyView {
+    let diagnostics = Memo::new(move |_| session.state.with(|s| s.document.diagnostics()));
+    view! {
+        <footer class="fp-status">
+            <span class="fp-status-count">{move || session.state.with(|s| format!("{} blocks · {} connections", s.document.definition.nodes.len(), s.document.connections().len()))}</span>
+            <span class="fp-gesture-hint" hidden=move || active_tab.get() != EditorTab::Process>"Pinch to zoom · Scroll to explore · ⌘ + drag to pan"</span>
+            <span role="status" class="fp-feedback">{move || {
+                let message = session.message.get();
+                if !message.is_empty() { message }
+                else if let Some(id) = session.connecting.get() { format!("Connect {id}: choose a destination · Esc to cancel") }
+                else if diagnostics.get().is_empty() { "No structural issues".into() }
+                else { format!("{} items to review", diagnostics.get().len()) }
+            }}</span>
+        </footer>
+    }
+    .into_any()
+}
+
+#[component]
+fn YamlDialog(
+    session: Session,
+    active_tab: RwSignal<EditorTab>,
+    yaml_open: RwSignal<bool>,
+    yaml: RwSignal<String>,
+    yaml_error: RwSignal<String>,
+    open_yaml: Callback<()>,
+) -> AnyView {
+    let yaml_input = NodeRef::<html::Textarea>::new();
+    Effect::new(move |_| {
+        if yaml_open.get()
+            && let Some(input) = yaml_input.get()
+        {
+            let _ = input.focus();
+        }
+    });
+    view! {
+        <Show when=move || yaml_open.get()>
+            <div class="fp-modal-backdrop">
+                <section class="fp-yaml-dialog" role="dialog" aria-modal="true" aria-label="Import and export process YAML">
+                    <header><div><h2>"Process YAML"</h2><p>"Import a definition or save your process with its layout."</p></div><button type="button" aria-label="Close YAML panel" on:click=move |_| yaml_open.set(false)>"✕"</button></header>
+                    <div class="fp-yaml-tools">
+                        <label class="fp-file">"Open .yaml file"<input type="file" accept=".yaml,.yml,application/yaml,text/yaml" on:change=move |event| {
+                            let input = event_target::<web_sys::HtmlInputElement>(&event);
+                            if let Some(file) = input.files().and_then(|files| files.get(0)) {
+                                leptos::task::spawn_local(async move {
+                                    match wasm_bindgen_futures::JsFuture::from(file.text()).await {
+                                        Ok(text) => { yaml.set(text.as_string().unwrap_or_default()); yaml_error.set(String::new()); }
+                                        Err(_) => yaml_error.set("Could not read this file.".into()),
+                                    }
+                                });
+                            }
+                            input.set_value("");
+                        }/></label>
+                        <button type="button" on:click=move |_| {
+                            match session.state.with_untracked(|s| s.document.to_process_yaml()) {
+                                Ok(text) => yaml.set(text), Err(error) => yaml_error.set(error),
+                            }
+                        }>"Process only"</button>
+                        <button type="button" on:click=move |_| open_yaml.run(())>"Include layout"</button>
+                    </div>
+                    <textarea class="fp-yaml-input" node_ref=yaml_input aria-label="Process YAML" spellcheck="false" prop:value=move || yaml.get() on:input=move |event| yaml.set(event_target_value(&event))></textarea>
+                    <p class="fp-error" role="alert">{move || yaml_error.get()}</p>
+                    <footer><a class="fp-button" download="process.yaml" href=move || format!("data:application/yaml;charset=utf-8,{}", percent_encode(&yaml.get()))>"Download YAML"</a>
+                    <button type="button" class="fp-primary" on:click=move |_| {
+                        match EditorDocument::from_yaml(&yaml.get_untracked()) {
+                            Ok(document) => {
+                                session.edit(|doc| { *doc = document; Ok(()) });
+                                session.selected.set(None); session.connecting.set(None); session.reveal_node.set(None); session.reveal_declaration.set(None); active_tab.set(EditorTab::Process); yaml_open.set(false); session.reset_view.update(|revision| *revision += 1);
+                            }
+                            Err(error) => yaml_error.set(error),
+                        }
+                    }>"Import process"</button></footer>
+                </section>
+            </div>
+        </Show>
+    }
+    .into_any()
 }
 
 fn percent_encode(text: &str) -> String {
@@ -328,7 +382,7 @@ fn percent_encode(text: &str) -> String {
 }
 
 #[component]
-fn BlockPalette(session: Session) -> impl IntoView {
+fn BlockPalette(session: Session) -> AnyView {
     view! {
         <aside class="fp-palette" aria-label="Block palette">
             <div class="fp-panel-heading"><span class="fp-eyebrow">"BUILD YOUR FLOW"</span><h2>"Blocks"</h2><p>"Drag onto the canvas, or click to add."</p></div>
@@ -354,10 +408,11 @@ fn BlockPalette(session: Session) -> impl IntoView {
             <div class="fp-palette-tip"><span>"A little guidance"</span><p>"Start at the top. Finish below. Use a condition when your process needs a choice."</p></div>
         </aside>
     }
+    .into_any()
 }
 
 #[component]
-fn ProcessCanvas(session: Session) -> impl IntoView {
+fn ProcessCanvas(session: Session) -> AnyView {
     let viewport = NodeRef::<html::Div>::new();
     let drag = RwSignal::new(None::<Drag>);
     let zoom = RwSignal::new(1.0_f64);
@@ -390,17 +445,6 @@ fn ProcessCanvas(session: Session) -> impl IntoView {
             }
         });
     });
-    let zoom_center = move |next: f64| {
-        if let Some(element) = viewport.get_untracked() {
-            zoom_at.run((
-                next,
-                Position::new(
-                    element.client_width() as f64 / 2.0,
-                    element.client_height() as f64 / 2.0,
-                ),
-            ));
-        }
-    };
     Effect::new(move |_| {
         session.reset_view.get();
         let reveal = session.reveal_node.get();
@@ -462,7 +506,6 @@ fn ProcessCanvas(session: Session) -> impl IntoView {
             let _ = element.set_pointer_capture(event.pointer_id());
         }
     });
-    let edges = Memo::new(move |_| session.state.with(|s| s.document.connections()));
     view! {
         <main class="fp-canvas-wrap">
             <div class="fp-canvas-caption"><span class="fp-canvas-dot"></span>"PROCESS CANVAS"<span>"TOP → BOTTOM"</span></div>
@@ -547,78 +590,116 @@ fn ProcessCanvas(session: Session) -> impl IntoView {
                 }
                 on:pointercancel=move |_| drag.set(None)
                 on:lostpointercapture=move |_| drag.set(None)>
-                <div class="fp-world" style=move || session.state.with(|s| { let (w,h) = s.document.canvas_size(); let z = zoom.get(); format!("width:{}px;height:{}px;background-size:{}px {}px", w*z, h*z, 20.0*z, 20.0*z) })>
-                    <div class="fp-scene" style=move || session.state.with(|s| { let (w,h) = s.document.canvas_size(); format!("width:{w}px;height:{h}px;transform:scale({})", zoom.get()) })>
-                    <svg class="fp-connections" aria-label="Process connections" width=move || session.state.with(|s| s.document.canvas_size().0) height=move || session.state.with(|s| s.document.canvas_size().1)>
-                        {move || edges.get().into_iter().filter_map(|edge| {
-                            session.state.with(|s| {
-                                let path = s.document.connection_path(&edge)?;
-                                let branch = s.document.branch_port(&edge);
-                                let color = branch.map(|(_, color)|color).or_else(||edge.special_outlet().map(|(_,color,_)|color));
-                                let target = s.document.positions.get(&edge.target)?;
-                                let tip_x = target.x + 112.0;
-                                let tip_y = target.y;
-                                let source = s.document.positions.get(&edge.source)?;
-                                let label_x = (source.x + target.x) / 2.0 + 124.0;
-                                let label_y = (source.y + 88.0 + target.y) / 2.0;
-                                Some(view! {
-                                    <g class="fp-edge" style=color.map(|color|format!("stroke:{color};--fp-edge-color:{color}")) class:fp-edge-special=edge.special_outlet().is_some()>
-                                        <title>{format!("{} → {} {}", edge.source, edge.target, edge.label)}</title>
-                                        <path d=path fill="none"/>
-                                        <path class="fp-arrow" d=format!("M {} {} L {tip_x} {tip_y} L {} {} Z", tip_x - 4.0, tip_y - 8.0, tip_x + 4.0, tip_y - 8.0)/>
-                                        <text x=label_x y=label_y>{if branch.is_some() { String::new() } else if edge.label.chars().count() > 28 { format!("{}…", edge.label.chars().take(27).collect::<String>()) } else { edge.label.clone() }}</text>
-                                    </g>
-                                })
-                            })
-                        }).collect_view()}
-                    </svg>
-                    <For each=move || session.state.with(|s| s.document.definition.nodes.iter().map(|n| n.id().to_string()).collect::<Vec<_>>()) key=|id| id.clone() children=move |id| {
-                        let id = StoredValue::new(id);
-                        let kind = Memo::new(move |_| session.state.with(|s| s.document.node(&id.get_value()).map(BlockKind::of).unwrap_or(BlockKind::End)));
-                        let routes = Signal::derive(move ||session.state.with(|s|s.document.branch_routes(&id.get_value())));
-                        view! {
-                            <div class="fp-node" data-node-id=id.get_value() data-kind=move || kind.get().name()
-                                class:fp-selected=move || session.selected.get().as_deref() == Some(id.get_value().as_str())
-                                class:fp-connecting=move || session.connecting.get().as_deref() == Some(id.get_value().as_str())
-                                style=move || session.state.with(|s| { let p = s.document.positions.get(&id.get_value()).copied().unwrap_or_default(); format!("transform:translate({}px,{}px);height:{}px", p.x, p.y, s.document.node_height(&id.get_value())) })>
-                                <button type="button" class="fp-node-body" on:pointerdown=move |event| start_drag.run((id.get_value(), event))
-                                    on:click=move |_| session.select(id.get_value())
-                                    on:keydown=move |event: ev::KeyboardEvent| {
-                                        let (dx,dy) = match event.key().as_str() { "ArrowLeft" => (-1.0,0.0), "ArrowRight" => (1.0,0.0), "ArrowUp" => (0.0,-1.0), "ArrowDown" => (0.0,1.0), _ => return };
-                                        event.prevent_default(); let step = if event.shift_key() { 40.0 } else { 8.0 };
-                                        session.edit(|doc| { if let Some(p) = doc.positions.get(&id.get_value()).copied() { doc.move_node(&id.get_value(), Position::new(p.x+dx*step,p.y+dy*step)); } Ok(()) });
-                                    }>
-                                    <span class="fp-kind-icon" aria-hidden="true">{move || kind.get().symbol()}</span>
-                                    <span class="fp-node-copy"><strong>{move || kind.get().label()}</strong><small>{id.get_value()}</small></span>
-                                    <span class="fp-node-menu" aria-hidden="true">"⠿"</span>
-                                </button>
-                                <BranchRows routes/>
-                                <SpecialRoutePorts routes=Signal::derive(move ||session.state.with(|s|s.document.special_routes(&id.get_value())))/>
-                                <Show when=move || kind.get() != BlockKind::Start>
-                                    <button type="button" class="fp-port fp-port-in" aria-label=format!("Connect to {}", id.get_value()) title="Connect here" on:click=move |_| session.select(id.get_value())></button>
-                                </Show>
-                                <Show when=move || kind.get() != BlockKind::End>
-                                    <button type="button" class="fp-port fp-port-out" aria-label=format!("Connect from {}", id.get_value()) title="Connect to another block" on:click=move |_| { session.selected.set(Some(id.get_value())); session.connecting.set(Some(id.get_value())); }>"+"</button>
-                                </Show>
-                            </div>
-                        }
-                    }/>
-                    </div>
-                </div>
+                <CanvasScene session zoom start_drag />
             </div>
-            <div class="fp-canvas-navigation"><button type="button" title="Return to Start" on:click=move |_| {
-                if let Some(element) = viewport.get_untracked() {
-                    let p = session.state.with_untracked(|s| s.document.definition.nodes.iter().find(|n| n.is_start()).and_then(|n| s.document.positions.get(n.id().get_id())).copied().unwrap_or_default());
-                    element.set_scroll_left(((p.x + 112.0) * zoom.get_untracked() - element.client_width() as f64 / 2.0).max(0.0) as i32);
-                    element.set_scroll_top((p.y * zoom.get_untracked() - 64.0).max(0.0) as i32);
-                }
-            }>"⌖ Start"</button>
-                <button type="button" aria-label="Zoom out" title="Zoom out" disabled={move || zoom.get() <= MIN_ZOOM} on:click=move |_| zoom_center(zoom.get_untracked() / 1.2)>"−"</button>
-                <button type="button" class="fp-zoom-level" aria-label="Reset zoom to 100%" title="Reset zoom" on:click=move |_| zoom_center(1.0)>{move || format!("{:.0}%", zoom.get() * 100.0)}</button>
-                <button type="button" aria-label="Zoom in" title="Zoom in" disabled={move || zoom.get() >= MAX_ZOOM} on:click=move |_| zoom_center(zoom.get_untracked() * 1.2)>"+"</button>
-            </div>
+            <CanvasNavigation session viewport zoom zoom_at />
         </main>
     }
+    .into_any()
+}
+
+#[component]
+fn CanvasScene(
+    session: Session,
+    zoom: RwSignal<f64>,
+    start_drag: Callback<(String, ev::PointerEvent)>,
+) -> AnyView {
+    let edges = Memo::new(move |_| session.state.with(|s| s.document.connections()));
+    view! {
+        <div class="fp-world" style=move || session.state.with(|s| { let (w,h) = s.document.canvas_size(); let z = zoom.get(); format!("width:{}px;height:{}px;background-size:{}px {}px", w*z, h*z, 20.0*z, 20.0*z) })>
+            <div class="fp-scene" style=move || session.state.with(|s| { let (w,h) = s.document.canvas_size(); format!("width:{w}px;height:{h}px;transform:scale({})", zoom.get()) })>
+                <svg class="fp-connections" aria-label="Process connections" width=move || session.state.with(|s| s.document.canvas_size().0) height=move || session.state.with(|s| s.document.canvas_size().1)>
+                    {move || edges.get().into_iter().filter_map(|edge| {
+                        session.state.with(|s| {
+                            let path = s.document.connection_path(&edge)?;
+                            let branch = s.document.branch_port(&edge);
+                            let color = branch.map(|(_, color)|color).or_else(||edge.special_outlet().map(|(_,color,_)|color));
+                            let target = s.document.positions.get(&edge.target)?;
+                            let tip_x = target.x + 112.0;
+                            let tip_y = target.y;
+                            let source = s.document.positions.get(&edge.source)?;
+                            let label_x = (source.x + target.x) / 2.0 + 124.0;
+                            let label_y = (source.y + 88.0 + target.y) / 2.0;
+                            Some(view! {
+                                <g class="fp-edge" style=color.map(|color|format!("stroke:{color};--fp-edge-color:{color}")) class:fp-edge-special=edge.special_outlet().is_some()>
+                                    <title>{format!("{} → {} {}", edge.source, edge.target, edge.label)}</title>
+                                    <path d=path fill="none"/>
+                                    <path class="fp-arrow" d=format!("M {} {} L {tip_x} {tip_y} L {} {} Z", tip_x - 4.0, tip_y - 8.0, tip_x + 4.0, tip_y - 8.0)/>
+                                    <text x=label_x y=label_y>{if branch.is_some() { String::new() } else if edge.label.chars().count() > 28 { format!("{}…", edge.label.chars().take(27).collect::<String>()) } else { edge.label.clone() }}</text>
+                                </g>
+                            })
+                        })
+                    }).collect_view()}
+                </svg>
+                <For each=move || session.state.with(|s| s.document.definition.nodes.iter().map(|n| n.id().to_string()).collect::<Vec<_>>()) key=|id| id.clone() children=move |id| {
+                    let id = StoredValue::new(id);
+                    let kind = Memo::new(move |_| session.state.with(|s| s.document.node(&id.get_value()).map(BlockKind::of).unwrap_or(BlockKind::End)));
+                    let routes = Signal::derive(move ||session.state.with(|s|s.document.branch_routes(&id.get_value())));
+                    view! {
+                        <div class="fp-node" data-node-id=id.get_value() data-kind=move || kind.get().name()
+                            class:fp-selected=move || session.selected.get().as_deref() == Some(id.get_value().as_str())
+                            class:fp-connecting=move || session.connecting.get().as_deref() == Some(id.get_value().as_str())
+                            style=move || session.state.with(|s| { let p = s.document.positions.get(&id.get_value()).copied().unwrap_or_default(); format!("transform:translate({}px,{}px);height:{}px", p.x, p.y, s.document.node_height(&id.get_value())) })>
+                            <button type="button" class="fp-node-body" on:pointerdown=move |event| start_drag.run((id.get_value(), event))
+                                on:click=move |_| session.select(id.get_value())
+                                on:keydown=move |event: ev::KeyboardEvent| {
+                                    let (dx,dy) = match event.key().as_str() { "ArrowLeft" => (-1.0,0.0), "ArrowRight" => (1.0,0.0), "ArrowUp" => (0.0,-1.0), "ArrowDown" => (0.0,1.0), _ => return };
+                                    event.prevent_default(); let step = if event.shift_key() { 40.0 } else { 8.0 };
+                                    session.edit(|doc| { if let Some(p) = doc.positions.get(&id.get_value()).copied() { doc.move_node(&id.get_value(), Position::new(p.x+dx*step,p.y+dy*step)); } Ok(()) });
+                                }>
+                                <span class="fp-kind-icon" aria-hidden="true">{move || kind.get().symbol()}</span>
+                                <span class="fp-node-copy"><strong>{move || kind.get().label()}</strong><small>{id.get_value()}</small></span>
+                                <span class="fp-node-menu" aria-hidden="true">"⠿"</span>
+                            </button>
+                            <BranchRows routes/>
+                            <SpecialRoutePorts routes=Signal::derive(move ||session.state.with(|s|s.document.special_routes(&id.get_value())))/>
+                            <Show when=move || kind.get() != BlockKind::Start>
+                                <button type="button" class="fp-port fp-port-in" aria-label=format!("Connect to {}", id.get_value()) title="Connect here" on:click=move |_| session.select(id.get_value())></button>
+                            </Show>
+                            <Show when=move || kind.get() != BlockKind::End>
+                                <button type="button" class="fp-port fp-port-out" aria-label=format!("Connect from {}", id.get_value()) title="Connect to another block" on:click=move |_| { session.selected.set(Some(id.get_value())); session.connecting.set(Some(id.get_value())); }>"+"</button>
+                            </Show>
+                        </div>
+                    }
+                }/>
+            </div>
+        </div>
+    }
+    .into_any()
+}
+
+#[component]
+fn CanvasNavigation(
+    session: Session,
+    viewport: NodeRef<html::Div>,
+    zoom: RwSignal<f64>,
+    zoom_at: Callback<(f64, Position)>,
+) -> AnyView {
+    let zoom_center = move |next: f64| {
+        if let Some(element) = viewport.get_untracked() {
+            zoom_at.run((
+                next,
+                Position::new(
+                    element.client_width() as f64 / 2.0,
+                    element.client_height() as f64 / 2.0,
+                ),
+            ));
+        }
+    };
+    view! {
+        <div class="fp-canvas-navigation"><button type="button" title="Return to Start" on:click=move |_| {
+            if let Some(element) = viewport.get_untracked() {
+                let p = session.state.with_untracked(|s| s.document.definition.nodes.iter().find(|n| n.is_start()).and_then(|n| s.document.positions.get(n.id().get_id())).copied().unwrap_or_default());
+                element.set_scroll_left(((p.x + 112.0) * zoom.get_untracked() - element.client_width() as f64 / 2.0).max(0.0) as i32);
+                element.set_scroll_top((p.y * zoom.get_untracked() - 64.0).max(0.0) as i32);
+            }
+        }>"⌖ Start"</button>
+            <button type="button" aria-label="Zoom out" title="Zoom out" disabled={move || zoom.get() <= MIN_ZOOM} on:click=move |_| zoom_center(zoom.get_untracked() / 1.2)>"−"</button>
+            <button type="button" class="fp-zoom-level" aria-label="Reset zoom to 100%" title="Reset zoom" on:click=move |_| zoom_center(1.0)>{move || format!("{:.0}%", zoom.get() * 100.0)}</button>
+            <button type="button" aria-label="Zoom in" title="Zoom in" disabled={move || zoom.get() >= MAX_ZOOM} on:click=move |_| zoom_center(zoom.get_untracked() * 1.2)>"+"</button>
+        </div>
+    }
+    .into_any()
 }
 
 // WebKit exposes native trackpad pinch via GestureEvent instead of ctrl+wheel.
