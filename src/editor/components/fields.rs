@@ -295,25 +295,116 @@ pub(super) fn ObjectEditor(
     field: Field,
     #[prop(default = true)] typed: bool,
     session: Session,
-) -> impl IntoView {
+) -> AnyView {
     let key = RwSignal::new(String::new());
     let error = RwSignal::new(String::new());
     view! { <div class="fp-object-editor">
-        <For each={move || field.get().as_object().map(|v| v.keys().cloned().collect::<Vec<_>>()).unwrap_or_default()} key=|key|key.clone() children=move |name| {
-            let name=StoredValue::new(name); let value=field.child(name.get_value()); let rename=RwSignal::new(name.get_value());
-            view! { <div class="fp-setting-card"><div class="fp-inline"><input aria-label="Field name" prop:value=move || rename.get() on:input=move |ev| rename.set(event_target_value(&ev))/>
-                <button type="button" on:click=move |_| { let new=rename.get_untracked(); let mut object=field.get(); if new.is_empty() || (new != name.get_value() && object.get(&new).is_some()) {error.set("Use a nonempty, unique field name.".into());return;} if let Some(o)=object.as_object_mut() {if let Some(v)=o.remove(&name.get_value()) {o.insert(new,v);}} field.set(object); error.set(String::new()); }>"Rename"</button>
-                <button type="button" aria-label=move || format!("Remove field {}",name.get_value()) on:click=move |_| {let mut object=field.get(); if let Some(o)=object.as_object_mut(){o.remove(&name.get_value());} field.set(object);}>"×"</button></div>
-                <Show when=move || typed && name.get_value()=="topic" && value.get().get("id_field").is_some() && field.draft.with(|v|v["handler"]=="create_support_ticket") fallback=move || view!{<ValueEditor field=value typed=typed session=session/>}>
-                    <Select field=value.child("id_field") label="Escalation topic" options=catalog(session,"topics") optional=false/>
-                </Show>
-            </div> }
-        }/>
-        <div class="fp-inline"><input aria-label=if typed {"New argument name"} else {"New field name"} placeholder="Field name" prop:value=move ||key.get() on:input=move |ev|key.set(event_target_value(&ev))/><button type="button" on:click=move |_| {
-            let name=key.get_untracked(); let mut object=field.get(); if name.is_empty() || object.get(&name).is_some(){error.set("Use a nonempty, unique field name.".into());return;}
-            object[&name]=if typed{json!({"string":""})}else{json!("")}; field.set(object);key.set(String::new());error.set(String::new());
-        }>"Add field"</button></div><p role="status">{move ||error.get()}</p>
+        <For each={move || field.get().as_object().map(|v| v.keys().cloned().collect::<Vec<_>>()).unwrap_or_default()} key=|key|key.clone() let:name>
+            <ObjectEditorField name field typed session error />
+        </For>
+        <ObjectEditorAddField field typed key error />
     </div> }
+    .into_any()
+}
+
+#[component]
+fn ObjectEditorField(
+    name: String,
+    field: Field,
+    typed: bool,
+    session: Session,
+    error: RwSignal<String>,
+) -> AnyView {
+    let name = StoredValue::new(name);
+    let value = field.child(name.get_value());
+    let rename = RwSignal::new(name.get_value());
+
+    view! {
+        <div class="fp-setting-card">
+            <ObjectEditorFieldActions name field rename error />
+            <ObjectEditorFieldValue name field value typed session />
+        </div>
+    }
+    .into_any()
+}
+
+#[component]
+fn ObjectEditorFieldActions(
+    name: StoredValue<String>,
+    field: Field,
+    rename: RwSignal<String>,
+    error: RwSignal<String>,
+) -> AnyView {
+    view! {
+        <div class="fp-inline">
+            <input aria-label="Field name" prop:value=move || rename.get() on:input=move |ev| rename.set(event_target_value(&ev))/>
+            <button type="button" on:click=move |_| {
+                let new=rename.get_untracked();
+                let mut object=field.get();
+                if new.is_empty() || (new != name.get_value() && object.get(&new).is_some()) {
+                    error.set("Use a nonempty, unique field name.".into());
+                    return;
+                }
+                if let Some(object)=object.as_object_mut()
+                    && let Some(value)=object.remove(&name.get_value())
+                {
+                    object.insert(new,value);
+                }
+                field.set(object);
+                error.set(String::new());
+            }>"Rename"</button>
+            <button type="button" aria-label=move || format!("Remove field {}",name.get_value()) on:click=move |_| {
+                let mut object=field.get();
+                if let Some(object)=object.as_object_mut(){object.remove(&name.get_value());}
+                field.set(object);
+            }>"×"</button>
+        </div>
+    }
+    .into_any()
+}
+
+#[component]
+fn ObjectEditorFieldValue(
+    name: StoredValue<String>,
+    field: Field,
+    value: Field,
+    typed: bool,
+    session: Session,
+) -> AnyView {
+    view! {
+        <Show when=move || typed && name.get_value()=="topic" && value.get().get("id_field").is_some() && field.draft.with(|v|v["handler"]=="create_support_ticket") fallback=move || view!{<ValueEditor field=value typed=typed session=session/>}>
+            <Select field=value.child("id_field") label="Escalation topic" options=catalog(session,"topics") optional=false/>
+        </Show>
+    }
+    .into_any()
+}
+
+#[component]
+fn ObjectEditorAddField(
+    field: Field,
+    typed: bool,
+    key: RwSignal<String>,
+    error: RwSignal<String>,
+) -> AnyView {
+    view! {
+        <div class="fp-inline">
+            <input aria-label=if typed {"New argument name"} else {"New field name"} placeholder="Field name" prop:value=move ||key.get() on:input=move |ev|key.set(event_target_value(&ev))/>
+            <button type="button" on:click=move |_| {
+                let name=key.get_untracked();
+                let mut object=field.get();
+                if name.is_empty() || object.get(&name).is_some(){
+                    error.set("Use a nonempty, unique field name.".into());
+                    return;
+                }
+                object[&name]=if typed{json!({"string":""})}else{json!("")};
+                field.set(object);
+                key.set(String::new());
+                error.set(String::new());
+            }>"Add field"</button>
+        </div>
+        <p role="status">{move ||error.get()}</p>
+    }
+    .into_any()
 }
 #[component]
 fn ArrayEditor(field: Field, typed: bool, session: Session) -> impl IntoView {
