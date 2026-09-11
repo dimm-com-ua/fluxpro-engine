@@ -229,7 +229,7 @@ pub(super) fn ValueEditor(
     field: Field,
     #[prop(default = false)] typed: bool,
     session: Session,
-) -> impl IntoView {
+) -> AnyView {
     let kind = Memo::new(move |_| value_kind(&field.get(), typed));
     let options = if typed {
         fixed(&[
@@ -258,6 +258,7 @@ pub(super) fn ValueEditor(
             }
         }}
     </div> }
+    .into_any()
 }
 fn value_kind(value: &Value, typed: bool) -> String {
     if typed {
@@ -407,10 +408,37 @@ fn ObjectEditorAddField(
     .into_any()
 }
 #[component]
-fn ArrayEditor(field: Field, typed: bool, session: Session) -> impl IntoView {
-    view! { <div><For each={move || (0..field.get().as_array().map_or(0,Vec::len)).collect::<Vec<_>>()} key=|i|*i children=move |i| view!{
-        <div class="fp-setting-card"><ValueEditor field=field.child(i) typed=typed session=session/><button type="button" on:click=move |_| {let mut v=field.get();if let Some(a)=v.as_array_mut(){a.remove(i);}field.set(v);}>"Remove item"</button></div>
-    }/><button type="button" on:click=move |_| {let mut v=field.get();if let Some(a)=v.as_array_mut(){a.push(if typed{json!({"string":""})}else{json!("")});}field.set(v);}>"Add item"</button></div> }
+fn ArrayEditor(field: Field, typed: bool, session: Session) -> AnyView {
+    view! {
+        <div>
+            <For each={move || (0..field.get().as_array().map_or(0,Vec::len)).collect::<Vec<_>>()} key=|index|*index let:index>
+                <ArrayEditorItem field index typed session />
+            </For>
+            <button type="button" on:click=move |_| {
+                let mut value=field.get();
+                if let Some(array)=value.as_array_mut(){
+                    array.push(if typed{json!({"string":""})}else{json!("")});
+                }
+                field.set(value);
+            }>"Add item"</button>
+        </div>
+    }
+    .into_any()
+}
+
+#[component]
+fn ArrayEditorItem(field: Field, index: usize, typed: bool, session: Session) -> AnyView {
+    view! {
+        <div class="fp-setting-card">
+            <ValueEditor field=field.child(index) typed=typed session=session />
+            <button type="button" on:click=move |_| {
+                let mut value=field.get();
+                if let Some(array)=value.as_array_mut(){array.remove(index);}
+                field.set(value);
+            }>"Remove item"</button>
+        </div>
+    }
+    .into_any()
 }
 
 #[cfg(test)]
