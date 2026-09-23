@@ -37,6 +37,11 @@ impl ContextMap {
     pub fn get(&self, key: &IdField) -> Option<&ContextValue> {
         self.0.get(key)
     }
+
+    /// Returns whether this context contains no values.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
 }
 
 /// A typed context value serialized as a single-key object.

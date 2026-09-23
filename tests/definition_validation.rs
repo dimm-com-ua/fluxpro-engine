@@ -39,6 +39,7 @@ fn timeout_parser_rejects_empty_zero_trailing_junk_and_overflow() {
             after: value.map(str::to_string),
             at: None,
             on_timeout: IdField::new("done").unwrap(),
+            context: Default::default(),
         };
         assert!(timer.after_now().is_err(), "accepted {value:?}");
     }
@@ -46,8 +47,34 @@ fn timeout_parser_rejects_empty_zero_trailing_junk_and_overflow() {
         after: Some("PT0.5S".into()),
         at: None,
         on_timeout: IdField::new("done").unwrap(),
+        context: Default::default(),
     };
     assert!(timer.after_now().is_ok());
+}
+
+#[test]
+fn timeout_context_is_additive_and_typed() {
+    let legacy: NodeTimeout = serde_json::from_value(json!({
+        "after": "PT1H",
+        "on_timeout": "done"
+    }))
+    .unwrap();
+    assert_eq!(legacy.context, Default::default());
+
+    let timer: NodeTimeout = serde_json::from_value(json!({
+        "after": "PT1H",
+        "on_timeout": "done",
+        "context": {
+            "stop_reason": { "string": "client_inactivity_timeout" }
+        }
+    }))
+    .unwrap();
+    assert_eq!(
+        timer
+            .context
+            .as_string(&IdField::new("stop_reason").unwrap()),
+        Some("client_inactivity_timeout".to_string())
+    );
 }
 #[test]
 fn validation_checks_timers_and_empty_signal_lists() {

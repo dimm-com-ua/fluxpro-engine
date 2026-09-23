@@ -192,6 +192,8 @@ wait_for:
 timeout:
   after: PT15M
   on_timeout: expired
+  context:
+    stop_reason: { string: review_timeout }
 next: decision
 ```
 
@@ -321,8 +323,11 @@ queues its continuation. An accepted signal cancels the visit's remaining
 timeouts in that same transaction. Other events bound to the closed visit are
 consumed without advancing the process, even before its successor executes.
 Timeouts carry a visit ID, so a timer from an earlier visit cannot advance a
-later visit to the same node. Timeout routing does not emit a signal or set
-`_last_signal`.
+later visit to the same node. Optional typed `timeout.context` is merged only
+when the timer wins. The engine also records `_last_event: timeout`,
+`_timeout_node`, `_timeout_target`, and `_timeout_at` in current context and
+includes the configured values in the durable `timeout.accepted` event. Timeout
+routing does not emit a signal or set `_last_signal`.
 
 Accepted signals merge their typed payload into context and set
 `ctx["_last_signal"]` to the signal name before routing. Signals arriving before

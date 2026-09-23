@@ -915,6 +915,13 @@ impl Node {
     pub fn is_user_task(&self) -> bool {
         matches!(self, Node::UserTask { .. })
     }
+    /// Returns the deadline configured for a waiting node, if any.
+    pub fn timeout(&self) -> Option<&NodeTimeout> {
+        match self {
+            Node::UserTask { timeout, .. } | Node::Wait { timeout, .. } => timeout.as_ref(),
+            _ => None,
+        }
+    }
     /// Returns the optional stage assignment applied on node entry.
     pub fn set_stage(&self) -> Option<&SetStage> {
         match self {
@@ -1082,6 +1089,12 @@ pub struct NodeTimeout {
     pub at: Option<DateTime<Utc>>,
     /// Node ID to enqueue when the deadline fires; this is not a signal name.
     pub on_timeout: IdField,
+    /// Typed values merged into process context when this deadline is accepted.
+    ///
+    /// This is useful for durable business facts such as a terminal reason. It
+    /// is not applied when the timer is stale because the wait already ended.
+    #[serde(default, skip_serializing_if = "ContextMap::is_empty")]
+    pub context: ContextMap,
 }
 
 impl NodeTimeout {

@@ -41,7 +41,10 @@ fn definition(service: bool) -> ProcessDefinition {
         json!({"id":"work", "type":"ServiceTask", "handler":"patch", "next":"yes", "set_stage":"working"})
     } else {
         json!({"id":"work", "type":"Wait", "wait_for":{"signals":["approved","rejected"]},
-            "timeout":{"after":"PT1H", "on_timeout":"expired"},
+            "timeout":{"after":"PT1H", "on_timeout":"expired", "context":{
+                "stop_reason":{"string":"client_inactivity_timeout"},
+                "stop_reason_description":{"string":"Client did not finish the waiting step in time"}
+            }},
             "next":{"branches":[{"when":"ctx[\"_last_signal\"] == \"approved\"", "next":"yes"}], "default":"no"}})
     };
     serde_json::from_value(json!({
@@ -392,6 +395,32 @@ async fn timeout_wins_before_queued_signal_without_creating_two_paths(pool: PgPo
     sqlx::query("update fluxpro.queue_runner set run_after=now()-interval '1 minute' where task ? 'ProcessEvent'").execute(&f.pool).await.unwrap();
     let timer = f.run().await;
     assert!(matches!(timer.task, FluxproQueueTask::ProcessEvent { .. }));
+    let context = f
+        .service
+        .get_process_instance_context(&token)
+        .await
+        .unwrap();
+    assert_eq!(
+        context.as_string(&id("stop_reason")).as_deref(),
+        Some("client_inactivity_timeout")
+    );
+    assert_eq!(
+        context.as_string(&id("_last_event")).as_deref(),
+        Some("timeout")
+    );
+    assert_eq!(
+        context.as_string(&id("_timeout_node")).as_deref(),
+        Some("work")
+    );
+    assert_eq!(
+        context.as_string(&id("_timeout_target")).as_deref(),
+        Some("expired")
+    );
+    assert_eq!(
+        f.count("select count(*) from fluxpro.process_instance_log where event_type='timeout.accepted' and node_id='work' and details #>> '{context,stop_reason,string}'='client_inactivity_timeout'")
+            .await,
+        1
+    );
     f.run().await;
     assert_eq!(f.count("select count(*) from fluxpro.queue_runner where task #>> '{process_node,node,id}'='expired'").await, 1);
     assert_eq!(f.count("select count(*) from fluxpro.queue_runner where task #>> '{process_node,node,id}'='yes'").await, 0);

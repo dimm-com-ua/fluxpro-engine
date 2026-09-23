@@ -521,12 +521,45 @@ pub(super) async fn process(
                     .is_some_and(|node| node.id() == origin.id())
             {
                 changes.close_wait = true;
+                let timer = origin.timeout().ok_or_else(|| {
+                    anyhow::anyhow!("timeout task origin {} has no timeout", origin.id())
+                })?;
+                anyhow::ensure!(
+                    timer.on_timeout == *on_time,
+                    "timeout target differs from its originating node definition"
+                );
+                let mut context = snapshot.context.clone();
+                context.0.extend(timer.context.0.clone());
+                context.0.insert(
+                    IdField::new("_last_event")?,
+                    ContextValue::string("timeout".to_string()),
+                );
+                context.0.insert(
+                    IdField::new("_timeout_node")?,
+                    ContextValue::string(origin.id().to_string()),
+                );
+                context.0.insert(
+                    IdField::new("_timeout_target")?,
+                    ContextValue::string(on_time.to_string()),
+                );
+                context.0.insert(
+                    IdField::new("_timeout_at")?,
+                    ContextValue::date_time(Utc::now()),
+                );
+                changes.context = Some(context);
                 queue_node(&mut changes, token, node(&snapshot, on_time)?, None);
-                changes.events.push(event(
+                let mut accepted = event(
                     &task,
                     "timeout.accepted",
                     "Timeout completed the current wait",
-                ));
+                );
+                accepted.node_id = Some(origin.id().to_string());
+                accepted.details = json!({
+                    "visit_id": snapshot.visit_id,
+                    "on_timeout": on_time,
+                    "context": timer.context,
+                });
+                changes.events.push(accepted);
             } else {
                 changes.events.push(event(
                     &task,
