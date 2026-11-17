@@ -83,8 +83,17 @@ impl Fixture {
         }
     }
     async fn start(&self) -> IdField {
+        self.start_with_id(id("business_instance")).await
+    }
+    async fn start_with_id(&self, process_id: IdField) -> IdField {
         self.service
-            .start_process_instance(id("durable_test"), command())
+            .start_process_instance(
+                id("durable_test"),
+                StartProcessInstance {
+                    process_id,
+                    ..command()
+                },
+            )
             .await
             .unwrap()
     }
@@ -2148,4 +2157,68 @@ async fn runner_cancels_host_when_heartbeat_is_blocked_past_deadline(pool: PgPoo
         .unwrap();
     block.commit().await.unwrap();
     assert!(f.source_exists(source).await);
+}
+
+#[sqlx::test(migrations = false)]
+#[ignore = "requires PostgreSQL DATABASE_URL; CI runs this suite explicitly"]
+async fn dequeue_skips_future_suspended_and_row_locked_instances(pool: PgPool) {
+    let f = Fixture::new(pool, definition(false)).await;
+    let future = f.start_with_id(id("future")).await;
+    let suspended = f.start_with_id(id("suspended")).await;
+    let locked = f.start_with_id(id("locked")).await;
+    let ready = f.start_with_id(id("ready")).await;
+    sqlx::query("update fluxpro.queue_runner set run_after=statement_timestamp()+interval '1 day' where task #>> '{process_node,process_token}'=$1")
+        .bind(future.get_id()).execute(&f.pool).await.unwrap();
+    sqlx::query("update fluxpro.process_instance set execution_state='suspended' where token=$1")
+        .bind(suspended.get_id())
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    let mut tx = f.pool.begin().await.unwrap();
+    sqlx::query("select uuid from fluxpro.process_instance where token=$1 for update")
+        .bind(locked.get_id())
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+
+    let task = timeout(
+        StdDuration::from_secs(2),
+        f.db.fetch_queue_task(&id("worker"), 30_000),
+    )
+    .await
+    .expect("dequeue must skip the locked instance")
+    .unwrap()
+    .unwrap();
+    assert_eq!(task.task.process_token(), &ready);
+    // An actively leased instance must not make the older locked row block polling.
+    assert!(
+        timeout(
+            StdDuration::from_secs(2),
+            f.db.fetch_queue_task(&id("other"), 30_000)
+        )
+        .await
+        .unwrap()
+        .unwrap()
+        .is_none()
+    );
+    tx.rollback().await.unwrap();
+    assert_eq!(f.claim().await.task.process_token(), &locked);
+}
+
+#[sqlx::test(migrations = false)]
+#[ignore = "requires PostgreSQL DATABASE_URL; CI runs this suite explicitly"]
+async fn dequeue_preserves_due_order_across_instances(pool: PgPool) {
+    let f = Fixture::new(pool, definition(false)).await;
+    let newer = f.start_with_id(id("newer")).await;
+    let older = f.start_with_id(id("older")).await;
+    sqlx::query("update fluxpro.queue_runner set run_after=statement_timestamp()-interval '1 hour' where task #>> '{process_node,process_token}'=$1")
+        .bind(older.get_id()).execute(&f.pool).await.unwrap();
+    assert_eq!(f.claim().await.task.process_token(), &older);
+    assert_eq!(f.claim().await.task.process_token(), &newer);
+    assert!(
+        f.db.fetch_queue_task(&id("idle"), 30_000)
+            .await
+            .unwrap()
+            .is_none()
+    );
 }

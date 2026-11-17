@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_call:
   push:
     branches: [main]
   pull_request:
@@ -9,6 +10,23 @@ permissions:
   contents: read
 
 jobs:
+  msrv:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - toolchain: "1.85.0"
+            features: full,migration-repair
+          - toolchain: "1.88.0"
+            features: editor-ssr
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.toolchain }}
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --no-default-features
+      - run: cargo check --features "${{ matrix.features }}"
   editor:
     runs-on: ubuntu-latest
     steps:
@@ -58,6 +76,10 @@ jobs:
           DATABASE_URL: postgres://fluxpro_test:fluxpro_test@localhost:5432/postgres
       - name: Check editor administration integration
         run: cargo test --features full,migration-repair,editor-ssr --test editor_admin -- --ignored
+        env:
+          DATABASE_URL: postgres://fluxpro_test:fluxpro_test@localhost:5432/postgres
+      - name: Check legacy version repair
+        run: cargo test --features full,migration-repair,editor-ssr --test legacy_version_repair -- --ignored
         env:
           DATABASE_URL: postgres://fluxpro_test:fluxpro_test@localhost:5432/postgres
       - name: Check public API documentation

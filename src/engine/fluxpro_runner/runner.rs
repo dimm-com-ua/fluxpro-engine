@@ -297,10 +297,10 @@ async fn run_one(
                         event
                     }
                 };
-                if (!suppress_repeated_signal_lifecycle || res.is_err())
-                    && let Err(error) = svc.record_execution_log(&process_token, event).await
-                {
-                    warn!("could not persist queue task completion event: {error:#}");
+                if !suppress_repeated_signal_lifecycle || res.is_err() {
+                    if let Err(error) = svc.record_execution_log(&process_token, event).await {
+                        warn!("could not persist queue task completion event: {error:#}");
+                    }
                 }
                 info!(
                     "fluxpro.queue_task.finished task_id={} task_kind={} attempt={} duration_ms={} outcome={}",

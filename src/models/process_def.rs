@@ -350,8 +350,10 @@ impl ProcessDefinition {
                         escalation.topic, action.id
                     ));
                 }
-                if let Some(signal) = &action.emit_signal
-                    && !signals.contains(signal.get_id())
+                if let Some(signal) = action
+                    .emit_signal
+                    .as_ref()
+                    .filter(|signal| !signals.contains(signal.get_id()))
                 {
                     errors.push(format!(
                         "escalation '{}' action '{}' emits undeclared signal '{}'",

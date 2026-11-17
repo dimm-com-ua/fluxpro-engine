@@ -466,8 +466,8 @@ impl FluxproService for FluxproServiceImpl {
             .start_process_instance_atomic(&definition, command)
             .await
             .map_err(|error| {
-                if let Some(sqlx::Error::Database(db)) = error.downcast_ref::<sqlx::Error>()
-                    && db.constraint() == Some("process_instance_process_id_key")
+                if matches!(error.downcast_ref::<sqlx::Error>(), Some(sqlx::Error::Database(db))
+                    if db.constraint() == Some("process_instance_process_id_key"))
                 {
                     return CreateProcessError::ProcessIdNonUnique;
                 }
@@ -819,8 +819,9 @@ impl FluxproService for FluxproServiceImpl {
             }
             Node::End { .. } => {
                 let process_def = self.get_process_def_by_instance(process_token).await?;
-                if let Some(special_handlers) = process_def.special_handlers
-                    && let Some(on_process_complete) = special_handlers.on_process_complete
+                if let Some(on_process_complete) = process_def
+                    .special_handlers
+                    .and_then(|handlers| handlers.on_process_complete)
                 {
                     self.process_handler(
                         process_token,

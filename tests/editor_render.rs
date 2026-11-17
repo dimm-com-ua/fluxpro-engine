@@ -17,7 +17,12 @@ fn editor_and_monitor_render_the_same_visible_branch_rows() {
         for html in [editor, monitor] {
             assert_eq!(html.matches("class=\"fp-branch-row\"").count(), expected);
             assert_eq!(html.matches("class=\"fp-branch-outlet\"").count(), expected);
-            assert!(html.contains("Otherwise</span>"));
+            // Leptos may insert hydration markers around dynamic text when
+            // component erasure is enabled by the host's development profile.
+            let text_html = regex::Regex::new(r"<!--.*?-->|<!>")
+                .unwrap()
+                .replace_all(&html, "");
+            assert!(text_html.contains("Otherwise</span>"));
             assert!(html.contains("approved"));
             assert_eq!(html.matches("class=\"fp-special-outlet\"").count(), special);
         }

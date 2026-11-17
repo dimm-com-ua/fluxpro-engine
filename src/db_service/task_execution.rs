@@ -128,8 +128,8 @@ pub(super) async fn load(
     };
     let visit_id: Option<Uuid> = instance.try_get("node_visit_id")?;
     if task_visit_id.is_none()
-        && let FluxproQueueTask::ProcessSignal { signal, .. } = &task.task
-        && accepts_signal(current_node.as_ref(), &signal.signal)
+        && matches!(&task.task, FluxproQueueTask::ProcessSignal { signal, .. }
+            if accepts_signal(current_node.as_ref(), &signal.signal))
     {
         task_visit_id = visit_id;
         sqlx::query("update fluxpro.queue_runner set node_visit_id=$2 where uuid=$1")
@@ -353,8 +353,10 @@ pub(super) async fn commit(
         sqlx::query("update fluxpro.process_instance set current_node_ref=$2, node_visit_id=$3, wait_completed=false where uuid=$1")
             .bind(instance_uuid).bind(node_uuid).bind(task.uuid).execute(&mut *tx).await?;
     }
-    if changes.context_patch.is_none()
-        && let Some(context) = &changes.context
+    if let Some(context) = changes
+        .context
+        .as_ref()
+        .filter(|_| changes.context_patch.is_none())
     {
         merge_context(&mut tx, instance_uuid, context).await?;
     }

@@ -702,21 +702,23 @@ impl FluxproDbService for FluxproDbServiceImpl {
         // Acquire the instance row first. A transaction advisory lock in a single
         // SELECT does not refresh that statement's MVCC snapshot after acquisition.
         // The second statement below sees any lease committed before this row lock.
+        // Start from due queue rows, not every running (often waiting) instance.
+        // A stable per-statement cutoff lets PostgreSQL bound the run_after index
+        // scan. The second statement gets a fresh cutoff and rechecks the lease.
         let token: Option<String> = sqlx::query_scalar(r#"
-            select i.token from fluxpro.process_instance i
-            join lateral (
-                select q.run_after,q.created_at from fluxpro.queue_runner q
-                where coalesce(q.task #>> '{process_node,process_token}',q.task #>> '{ProcessEvent,process_token}',q.task #>> '{ProcessSignal,process_token}')=i.token
-                  and q.run_after<=clock_timestamp()
-                  and (q.lock_key='' or q.locked_by is null or q.locked_by<clock_timestamp())
-                  and (i.recovery_task_uuid is null or i.recovery_task_uuid=q.uuid)
-                order by q.run_after,q.created_at,q.uuid limit 1
-            ) ready on true
-            where i.execution_state='running'
+            select i.token from fluxpro.queue_runner q
+            join fluxpro.process_instance i on i.token=coalesce(
+                q.task #>> '{process_node,process_token}',
+                q.task #>> '{ProcessEvent,process_token}',
+                q.task #>> '{ProcessSignal,process_token}')
+            where q.run_after<=statement_timestamp()
+              and (q.lock_key='' or q.locked_by is null or q.locked_by<statement_timestamp())
+              and i.execution_state='running'
+              and (i.recovery_task_uuid is null or i.recovery_task_uuid=q.uuid)
               and not exists (select 1 from fluxpro.queue_runner active
                   where coalesce(active.task #>> '{process_node,process_token}',active.task #>> '{ProcessEvent,process_token}',active.task #>> '{ProcessSignal,process_token}')=i.token
-                    and active.lock_key<>'' and active.locked_by>=clock_timestamp())
-            order by ready.run_after,ready.created_at,i.uuid
+                    and active.lock_key<>'' and active.locked_by>=statement_timestamp())
+            order by q.run_after,q.created_at,i.uuid
             for update of i skip locked limit 1
         "#).fetch_optional(&mut *tx).await?;
         let Some(token) = token else {
@@ -730,11 +732,11 @@ impl FluxproDbService for FluxproDbServiceImpl {
                 where coalesce(q.task #>> '{process_node,process_token}',q.task #>> '{ProcessEvent,process_token}',q.task #>> '{ProcessSignal,process_token}')=$3
                   and i.execution_state='running'
                   and (i.recovery_task_uuid is null or i.recovery_task_uuid=q.uuid)
-                  and q.run_after<=clock_timestamp()
-                  and (q.lock_key='' or q.locked_by is null or q.locked_by<clock_timestamp())
+                  and q.run_after<=statement_timestamp()
+                  and (q.lock_key='' or q.locked_by is null or q.locked_by<statement_timestamp())
                   and not exists (select 1 from fluxpro.queue_runner active
                     where coalesce(active.task #>> '{process_node,process_token}',active.task #>> '{ProcessEvent,process_token}',active.task #>> '{ProcessSignal,process_token}')=$3
-                      and active.lock_key<>'' and active.locked_by>=clock_timestamp())
+                      and active.lock_key<>'' and active.locked_by>=statement_timestamp())
                 order by q.run_after,q.created_at,q.uuid
                 for update of q skip locked limit 1
             )

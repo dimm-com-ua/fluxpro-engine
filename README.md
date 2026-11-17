@@ -40,7 +40,7 @@ The [`editor` module](docs/editor.md) exports embeddable `ProcessEditor` and
 `ProcessMonitor` Leptos 0.8 components from this package:
 
 ```toml
-fluxpro-engine = { version = "0.1.5", features = ["editor-csr"] }
+fluxpro-engine = { version = "0.1.10", features = ["editor-csr"] }
 ```
 
 ```rust,ignore
@@ -77,18 +77,45 @@ The [approval workflow](examples/definitions/approval.yaml) combines `Start`,
 `ServiceTask`, `UserTask`, `Gateway`, `Wait`, and `End`. Generate the complete
 Rust API reference with `cargo doc --features full,migration-repair,editor-ssr --no-deps`.
 
+## Version 0.1.10
+
+Queue dequeue now selects from due tasks instead of probing every running
+instance. Stable statement-time cutoffs and new indexes reduce idle polling work
+while retaining instance locking, lease rechecks, and incident recovery priority.
+Migrations 8–10 each build one index concurrently outside a transaction; run the
+engine migrator before starting updated workers. Stored task JSON and service
+contracts remain compatible. See [maintenance details](docs/architecture.md).
+
+This release also includes the pending Rust 1.85 backend compatibility fixes and
+release validation workflow improvements.
+
 ## Publishing
 
 The repository is released through GitHub Releases. After creating a release
-whose tag matches the crate version, the `Publish` workflow publishes the
-package using the repository's `CARGO_REGISTRY_TOKEN` secret.
+whose tag matches the crate version (`0.1.10` or `v0.1.10`), the `Publish` workflow
+checks the tag and runs the complete CI workflow before publishing the package
+using the repository's `CARGO_REGISTRY_TOKEN` secret.
 
 To validate a release locally:
 
 ```bash
 cargo fmt --all -- --check
 cargo test --features full,migration-repair,editor-ssr
+cargo test --no-default-features
+cargo test --features editor
+cargo test --features editor-ssr
+cargo check --features editor-csr --target wasm32-unknown-unknown --bins
+cargo check --features editor-hydrate --target wasm32-unknown-unknown
+cargo rustdoc --features full,migration-repair,editor-ssr --lib -- -D missing-docs -D rustdoc::broken_intra_doc_links -D rustdoc::invalid_rust_codeblocks
 cargo package
+cargo package --features editor-ssr,admin
+```
+
+With `DATABASE_URL` pointing to a disposable PostgreSQL database whose user can
+create test databases, also run all ignored integration tests:
+
+```bash
+cargo test --features full,migration-repair,editor-ssr -- --ignored --test-threads=4
 ```
 
 The crate's `Cargo.toml`, source, migrations, fixtures, licenses, and CI files

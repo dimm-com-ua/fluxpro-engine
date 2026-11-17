@@ -18,7 +18,7 @@ Choose the Leptos mode matching the host application (`editor-csr`, `editor-hydr
 
 ```toml
 [dependencies]
-fluxpro-engine = { version = "0.1.5", features = ["editor-csr"] }
+fluxpro-engine = { version = "0.1.10", features = ["editor-csr"] }
 leptos = { version = "0.8.20", features = ["csr"] }
 ```
 

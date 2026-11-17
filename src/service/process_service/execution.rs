@@ -461,7 +461,8 @@ async fn enter(
                     failed.queue_task_uuid = Some(task.uuid);
                     failed.attempt = Some(task.attempts);
                     if let Some(retries) = retries
-                        && i64::from(task.attempts) <= i64::from(retries.max)
+                        .as_ref()
+                        .filter(|retries| i64::from(task.attempts) <= i64::from(retries.max))
                     {
                         failed.level = ExecutionLogLevel::Warning;
                         changes.retry_at = Some(retries.next_attempt_at()?);
@@ -573,11 +574,11 @@ pub(super) async fn process(
                 .current_node
                 .as_ref()
                 .and_then(|node| waiting_transition(node, &signal.signal));
-            if let Some((current, successor)) = waiting
-                && !snapshot.wait_completed
-                && snapshot.task_visit_id.is_some()
-                && snapshot.task_visit_id == snapshot.visit_id
-            {
+            if let Some((current, successor)) = waiting.filter(|_| {
+                !snapshot.wait_completed
+                    && snapshot.task_visit_id.is_some()
+                    && snapshot.task_visit_id == snapshot.visit_id
+            }) {
                 changes.close_wait = true;
                 let mut context = snapshot.context.clone();
                 context.0.extend(signal.context.0.clone());

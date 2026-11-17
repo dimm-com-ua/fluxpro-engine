@@ -1,6 +1,6 @@
 [package]
 name = "fluxpro-engine"
-version = "0.1.9"
+version = "0.1.10"
 edition = "2024"
 rust-version = "1.85"
 description = "A feature-gated workflow and process engine"
@@ -10,6 +10,10 @@ documentation = "https://docs.rs/fluxpro-engine"
 repository = "https://github.com/dimm-com-ua/fluxpro-engine"
 keywords = ["workflow", "process", "engine", "bpm"]
 categories = ["asynchronous"]
+exclude = ["/.idea"]
+
+[package.metadata.docs.rs]
+features = ["full", "migration-repair", "editor-ssr"]
 
 [workspace]
 resolver = "3"

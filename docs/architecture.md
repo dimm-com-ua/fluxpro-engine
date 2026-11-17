@@ -28,6 +28,33 @@ and checking existing leases again in a separate READ COMMITTED statement.
 A single-statement advisory lock cannot refresh an already-taken MVCC snapshot. The
 `locked_by` database column is a lease-expiration timestamp despite its name.
 Ownership-sensitive renewal, retry, and deletion compare the lease key.
+
+Dequeue starts from due queue rows rather than probing every running instance.
+Eligibility uses `statement_timestamp()` so the time cutoff is stable within each
+statement and can bound an index scan; lease creation still uses
+`clock_timestamp()`. Migrations 8–10 add an expression index matching all three
+persisted task tags, a partial index for sibling lease checks, and an index in
+queue scheduling order. Each migration builds one index concurrently outside a
+transaction. Apply these migrations through the engine migrator before starting
+updated workers. No queue payload or public service contract changes.
+
+On an existing production database, inspect `EXPLAIN (ANALYZE, BUFFERS)` for the
+selection statement inside a transaction that is rolled back, including idle
+polling and a mix of future timers and due tasks. Confirm the due-time index
+condition and indexed sibling lease lookup; do not infer production latency from
+local compilation. A failed concurrent index build can leave an invalid index;
+inspect `pg_index.indisvalid` and remove only that failed index before retrying
+its migration. Historical migrations must not be edited.
+
+A local PostgreSQL 17.10 synthetic check on 2026-11-18 used 3,000 running
+instances with 3,000 future tasks spread across the three JSON task tags.
+`EXPLAIN (ANALYZE, BUFFERS)` measured idle selection at 1,701 ms / 312,049
+shared buffer hits before the change, 4.859 ms / 15,049 hits for the old query
+with the new indexes, and 0.077 ms / 11 hits for the new query with the indexes.
+With one due task, the new query returned one row in 0.084 ms / 18 hits.
+All indexes were valid. These measurements are local evidence, not a production
+latency guarantee; the disposable benchmark database was removed afterward.
+
 Renewal locks the queue row first and then checks its deadline in a fresh statement;
 waiting on a row lock cannot revive an expired lease.
 
